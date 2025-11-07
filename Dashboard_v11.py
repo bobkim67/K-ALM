@@ -17,14 +17,15 @@ from openpyxl.drawing.image import Image
 import matplotlib.ticker as ticker
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import matplotlib.font_manager as fm
-import tensorflow as tf
-from keras import backend as K
-from keras.models import Sequential
-from keras.layers import Dense, LSTM
-from sklearn.preprocessing import MinMaxScaler
+from urllib.parse import urljoin, quote
+# import matplotlib.font_manager as fm
+# import tensorflow as tf
+# from keras import backend as K
+# from keras.models import Sequential
+# from keras.layers import Dense, LSTM
+# from sklearn.preprocessing import MinMaxScaler
 import pickle
-import gc
+# import gc
 from functools import lru_cache
 
 warnings.filterwarnings('ignore')
@@ -247,47 +248,47 @@ def predict_future(model, input_data, steps, scaler):
     future_predictions = scaler.inverse_transform(future_predictions_dummy)[:, 0]
     return future_predictions
 
-def LSTM_simul(asset, seed):
-    data = macro[asset_related[asset]].values
+# def LSTM_simul(asset, seed):
+#     data = macro[asset_related[asset]].values
     
-    # 데이터 스케일링
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    data_scaled = scaler.fit_transform(data)
+#     # 데이터 스케일링
+#     scaler = MinMaxScaler(feature_range=(0, 1))
+#     data_scaled = scaler.fit_transform(data)
 
-    # 학습 데이터와 테스트 데이터 준비
-    target_idx = 0
-    time_step = 12
-    train_size = int(len(data_scaled) * 0.75)
-    train, test = data_scaled[0:train_size, :], data_scaled[train_size:len(data_scaled), :]
-    X_train, y_train = create_dataset(train, time_step, target_idx=target_idx)
-    X_test, y_test = create_dataset(test, time_step, target_idx=target_idx)
+#     # 학습 데이터와 테스트 데이터 준비
+#     target_idx = 0
+#     time_step = 12
+#     train_size = int(len(data_scaled) * 0.75)
+#     train, test = data_scaled[0:train_size, :], data_scaled[train_size:len(data_scaled), :]
+#     X_train, y_train = create_dataset(train, time_step, target_idx=target_idx)
+#     X_test, y_test = create_dataset(test, time_step, target_idx=target_idx)
 
-    tf.random.set_seed(seed)
-    # LSTM 모델 생성
-    model = Sequential()
-    model.add(LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))
-    model.add(LSTM(50, return_sequences=True))
-    model.add(LSTM(50))
-    model.add(Dense(1))
-    model.compile(loss='mean_squared_error', optimizer='adam')
+#     tf.random.set_seed(seed)
+#     # LSTM 모델 생성
+#     model = Sequential()
+#     model.add(LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))
+#     model.add(LSTM(50, return_sequences=True))
+#     model.add(LSTM(50))
+#     model.add(Dense(1))
+#     model.compile(loss='mean_squared_error', optimizer='adam')
 
-    # 모델 학습
-    model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=100, batch_size=64, verbose=0)
+#     # 모델 학습
+#     model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=100, batch_size=64, verbose=0)
 
-    #예측
-    train_predict_dummy = np.hstack((model.predict(X_train), np.zeros((X_train.shape[0], data.shape[1] - 1))))
-    test_predict_dummy = np.hstack((model.predict(X_test), np.zeros((X_test.shape[0], data.shape[1] - 1))))
+#     #예측
+#     train_predict_dummy = np.hstack((model.predict(X_train), np.zeros((X_train.shape[0], data.shape[1] - 1))))
+#     test_predict_dummy = np.hstack((model.predict(X_test), np.zeros((X_test.shape[0], data.shape[1] - 1))))
 
-    train_predict = scaler.inverse_transform(train_predict_dummy)[:, target_idx]
-    test_predict = scaler.inverse_transform(test_predict_dummy)[:, target_idx]
+#     train_predict = scaler.inverse_transform(train_predict_dummy)[:, target_idx]
+#     test_predict = scaler.inverse_transform(test_predict_dummy)[:, target_idx]
 
-    train_x_values = np.arange(time_step, len(train_predict) + time_step)
-    test_x_values = np.arange(len(train_predict) + 2*time_step, len(train_predict) + len(test_predict) + 2*time_step)
+#     train_x_values = np.arange(time_step, len(train_predict) + time_step)
+#     test_x_values = np.arange(len(train_predict) + 2*time_step, len(train_predict) + len(test_predict) + 2*time_step)
 
-    last_test_data = X_test[-1]
-    future_predictions = predict_future(model, last_test_data, steps = 12 * projection_period, scaler=scaler)
+#     last_test_data = X_test[-1]
+#     future_predictions = predict_future(model, last_test_data, steps = 12 * projection_period, scaler=scaler)
     
-    return data, train_predict, test_predict, train_x_values, test_x_values, future_predictions, time_step
+#     return data, train_predict, test_predict, train_x_values, test_x_values, future_predictions, time_step
 
 # info_dict
 @lru_cache(maxsize=None)
@@ -750,13 +751,13 @@ def asset_config_block(
     base = st.selectbox("자산군 선택", options, index=base_idx, key=f"{key_prefix}_base")
 
     # ② 모델(단일)
-    model = st.selectbox("시뮬레이션 모델", ['Vasicek','GBM','LSTM'],
+    model = st.selectbox("시뮬레이션 모델", ['Vasicek','GBM'], #'LSTM'
                         index=model_default_index, key=f"{key_prefix}_model")
 
     # ③ 기대수익률
     exp_opt = st.selectbox("기대수익률",
-                        ['Building Block','MLE','LSTM','Vasicek','GBM','직접입력'],
-                        index=5, key=f"{key_prefix}_exp_opt")
+                        ['Building Block','MLE','Vasicek','GBM','직접입력'], #'LSTM'
+                        index=4, key=f"{key_prefix}_exp_opt")
     if exp_opt == '직접입력':
         exp_val = st.number_input("기대수익률(직접입력)",
                                 value=float(Expected_returns.loc["Expected_returns", exp_key]),
@@ -766,8 +767,8 @@ def asset_config_block(
 
     # ④ 표준편차
     sigma_opt = st.selectbox("표준편차",
-                            ['과거데이터','MLE','LSTM','Vasicek','GBM','직접입력'],
-                            index=5, key=f"{key_prefix}_sigma_opt")
+                            ['과거데이터','MLE','Vasicek','GBM','직접입력'], #'LSTM',
+                            index=4, key=f"{key_prefix}_sigma_opt")
     if sigma_opt == '직접입력':
         sigma_val = st.number_input("표준편차(직접입력)",
                                     value=float(Expected_sigma.loc["Expected_sigma", sigma_key]),
@@ -962,42 +963,57 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(["�
     , "확정급여채무", "메모", "자산배분 설계", "자산배분 시뮬레이션", "자산배분", "자산배분_메모"])
 
 # 각 탭의 내용 설정
+default_url = "https://raw.githubusercontent.com/bobkim67/K-ALM/main/"
 with tab1:
     #명부 업로드
     fl0 = st.file_uploader(":file_folder: 명부 Upload",type=(["csv","xlsx","xls"]))
     if fl0 is not None:
         filename = fl0.name
         명부 = pd.read_excel(fl0)
+        st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
+    
+    else:
+        명부 = pd.read_excel(urljoin(default_url, quote("명부_v0.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`명부_v0.xlsx`)을 자동 불러왔습니다.")
 
-        명부['성별'] = 명부['식별번호'].apply(lambda x: 'M' if int(x[7]) % 2 == 1 else 'F')
-        명부['dob_yr'] = 명부['식별번호'].apply(lambda x: '19' if int(x[7]) in [1, 2, 5, 6] else '20')
-        명부['생년월일'] = 명부['dob_yr'] + 명부['식별번호'].str[:6]
-        명부['생년월일'] = pd.to_datetime(명부['생년월일'], format='%Y%m%d').dt.strftime('%Y-%m-%d')
-        명부['생년월일'] = 명부['생년월일'].apply(lambda x: datetime.strptime(x, "%Y-%m-%d").date())
-        명부['생년월일'] = pd.to_datetime(명부['생년월일'], format='%Y%m%d').dt.date
+    명부['성별'] = 명부['식별번호'].apply(lambda x: 'M' if int(x[7]) % 2 == 1 else 'F')
+    명부['dob_yr'] = 명부['식별번호'].apply(lambda x: '19' if int(x[7]) in [1, 2, 5, 6] else '20')
+    명부['생년월일'] = 명부['dob_yr'] + 명부['식별번호'].str[:6]
+    명부['생년월일'] = pd.to_datetime(명부['생년월일'], format='%Y%m%d').dt.strftime('%Y-%m-%d')
+    명부['생년월일'] = 명부['생년월일'].apply(lambda x: datetime.strptime(x, "%Y-%m-%d").date())
+    명부['생년월일'] = pd.to_datetime(명부['생년월일'], format='%Y%m%d').dt.date
 
-        명부['입사일'] = pd.to_datetime(명부['입사일']).apply(lambda x: x.date())
-        명부['기산일'] = pd.to_datetime(명부['기산일']).apply(lambda x: x.date())
-        명부['기준급여'] = 명부['기준급여'].apply(lambda x: int(x))
-        명부['당월퇴직추계'] = 명부['당월퇴직추계'].apply(lambda x: int(x))
-        명부['연령'] = 명부['생년월일'].apply(lambda x: 나이계산(x, 기준일))
-        명부['근속년수'] = (기준일 - 명부['기산일']).apply(lambda x: x.days // 365)
-        명부.drop(columns=['dob_yr','식별번호'], inplace=True)
-        st.dataframe(명부)
+    명부['입사일'] = pd.to_datetime(명부['입사일']).apply(lambda x: x.date())
+    명부['기산일'] = pd.to_datetime(명부['기산일']).apply(lambda x: x.date())
+    명부['기준급여'] = 명부['기준급여'].apply(lambda x: int(x))
+    명부['당월퇴직추계'] = 명부['당월퇴직추계'].apply(lambda x: int(x))
+    명부['연령'] = 명부['생년월일'].apply(lambda x: 나이계산(x, 기준일))
+    명부['근속년수'] = (기준일 - 명부['기산일']).apply(lambda x: x.days // 365)
+    명부.drop(columns=['dob_yr','식별번호'], inplace=True)
+    st.dataframe(명부)
+        
 
     #기초율 업로드
     fl1 = st.file_uploader(":file_folder: 기초율 Upload",type=(["csv","xlsx","xls"]))
     if fl1 is not None:
         filename = fl1.name
         기초율 = pd.read_excel(fl1)
-        st.dataframe(기초율)
+        st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
+    else:
+        기초율 = pd.read_excel(urljoin(default_url, quote("기초율_v0.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`기초율_v0.xlsx`)을 자동 불러왔습니다.")
+    st.dataframe(기초율)
 
     #지급률 업로드
     fl2 = st.file_uploader(":file_folder: 지급률 Upload",type=(["csv","xlsx","xls"]))
     if fl2 is not None:
         filename = fl2.name
         지급률 = pd.read_excel(fl2)
-        st.dataframe(지급률)
+        st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
+    else:
+        지급률 = pd.read_excel(urljoin(default_url, quote("지급률_v0.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`지급률_v0.xlsx`)을 자동 불러왔습니다.")
+    st.dataframe(지급률)
 
     #경제지표 업로드
     fl3 = st.file_uploader(":file_folder: 경제지표 Upload",type=(["csv","xlsx","xls"]))
@@ -1005,32 +1021,54 @@ with tab1:
         filename = fl3.name
         st.write(filename)
         macro = pd.read_excel(fl3)
-        st.dataframe(macro)
-        Expected_returns = pd.DataFrame()
-        Expected_sigma = pd.DataFrame()
+        st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
+    else:
+        macro = pd.read_excel(urljoin(default_url, quote("Data_2025_v3.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`Data_2025_v3.xlsx`)을 자동 불러왔습니다.")
+    st.dataframe(macro)
 
-        cor_data = pd.DataFrame(index=macro.index)
-        cor_data['Deposit_1Y'] = macro['Deposit_1Y'].diff()
-        cor_data['G_Bond_1Y'] = macro['G_Bond_1Y'].diff()
-        cor_data['G_Bond_3Y'] = macro['G_Bond_3Y'].diff()
-        cor_data['G_Bond_5Y'] = macro['G_Bond_5Y'].diff()
-        cor_data['G_Bond_10Y'] = macro['G_Bond_10Y'].diff()
-        cor_data['KIS_total'] = np.log(macro['KIS_total_index']).diff()
-        cor_data['KIS_IR_2Y'] = macro['KIS_IR_2Y'].diff()
-        cor_data['KIS_CY_3Y'] = macro['KIS_CY_3Y'].diff()
-        cor_data['KIS_IR_3Y'] = macro['KIS_IR_3Y'].diff()
-        cor_data['ICE_GCI']  = macro['ICE_GCI'].diff()
-        cor_data['ICE_GGI']  = macro['ICE_GGI'].diff()
-        cor_data['ICE_USCI_3Y']  = macro['ICE_USCI_3Y'].diff()
-        cor_data['ICE_USCI_5Y']  = macro['ICE_USCI_5Y'].diff()
-        cor_data['KOSPI'] = np.log(macro['KOSPI_index']).diff()
-        cor_data['MSCI_ACWI'] = np.log(macro['MSCI_ACWI_index']).diff()
-        cor_data['ICE_GBMI'] = np.log(macro['ICE_GBMI_index']).diff()
-        cor_data['Wage_rate'] = macro['Wage_rate']
-        cor_data['Real_Estate'] = macro['Real_Estate']
-        cor_data['CCI'] = macro['CCI'].diff()
+    #기대수익률 업로드
+    fl4 = st.file_uploader(":file_folder: 기대수익률 Upload",type=(["csv","xlsx","xls"]))
+    if fl4 is not None:
+        filename = fl4.name
+        st.write(filename)
+        Exp_rt_xl = pd.read_excel(fl4, index_col=0)
+        st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
+    else:
+        Exp_rt_xl = pd.read_excel(urljoin(default_url, quote("기대수익률_v0.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`기대수익률_v0.xlsx`)을 자동 불러왔습니다.")    
+
+    # ✅ 자산군을 인덱스로
+    Exp_rt_xl.set_index("자산군", inplace=True)
+    Exp_rt_xl.index.name = None
+
+    # ✅ “기대수익률” 컬럼을 행으로 전치 (당신 코드 구조에 맞춤)
+    Expected_returns = Exp_rt_xl.T
+    Expected_returns.index = ["Expected_returns"]    
+    st.dataframe(Expected_returns)
+
+    cor_data = pd.DataFrame(index=macro.index)
+    cor_data['Deposit_1Y'] = macro['Deposit_1Y'].diff()
+    cor_data['G_Bond_1Y'] = macro['G_Bond_1Y'].diff()
+    cor_data['G_Bond_3Y'] = macro['G_Bond_3Y'].diff()
+    cor_data['G_Bond_5Y'] = macro['G_Bond_5Y'].diff()
+    cor_data['G_Bond_10Y'] = macro['G_Bond_10Y'].diff()
+    cor_data['KIS_total'] = np.log(macro['KIS_total_index']).diff()
+    cor_data['KIS_IR_2Y'] = macro['KIS_IR_2Y'].diff()
+    cor_data['KIS_CY_3Y'] = macro['KIS_CY_3Y'].diff()
+    cor_data['KIS_IR_3Y'] = macro['KIS_IR_3Y'].diff()
+    cor_data['ICE_GCI']  = macro['ICE_GCI'].diff()
+    cor_data['ICE_GGI']  = macro['ICE_GGI'].diff()
+    cor_data['ICE_USCI_3Y']  = macro['ICE_USCI_3Y'].diff()
+    cor_data['ICE_USCI_5Y']  = macro['ICE_USCI_5Y'].diff()
+    cor_data['KOSPI'] = np.log(macro['KOSPI_index']).diff()
+    cor_data['MSCI_ACWI'] = np.log(macro['MSCI_ACWI_index']).diff()
+    cor_data['ICE_GBMI'] = np.log(macro['ICE_GBMI_index']).diff()
+    cor_data['Wage_rate'] = macro['Wage_rate']
+    cor_data['Real_Estate'] = macro['Real_Estate']
+    cor_data['CCI'] = macro['CCI'].diff()
   
-if all([fl0, fl1, fl2, fl3]):
+if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro is not None]):
     with tab2:
         if '직급개수' not in st.session_state:
             st.session_state.직급개수 = None
@@ -1385,18 +1423,18 @@ if all([fl0, fl1, fl2, fl3]):
         # ▶ Expected Returns (연율 → 로그수익률)
         np.random.seed(seed)
 
-        Expected_returns.loc["Expected_returns", "Domestic_bond"]  = 0.0435
-        Expected_returns.loc["Expected_returns", "Global_bond"]    = 0.0423
-        Expected_returns.loc["Expected_returns", "Domestic_stock"] = 0.0630
-        Expected_returns.loc["Expected_returns", "Global_stock"]   = 0.0763
-        Expected_returns.loc["Expected_returns", "PIGP"]           = 0.0310
+        # Expected_returns.loc["Expected_returns", "Domestic_bond"]  = 0.0435
+        # Expected_returns.loc["Expected_returns", "Global_bond"]    = 0.0423
+        # Expected_returns.loc["Expected_returns", "Domestic_stock"] = 0.0630
+        # Expected_returns.loc["Expected_returns", "Global_stock"]   = 0.0763
+        # Expected_returns.loc["Expected_returns", "PIGP"]           = 0.0310
         Expected_returns.loc["Expected_returns", "Interest_rate"]  = vasicek_calibrate(macro[asset_related["Interest_rate"][0]], dt=dt)[1]
-        Expected_returns.loc["Expected_returns", "Real_Estate"]    = 0.0630
-        # Expected_returns.loc["Expected_returns", "Wage_rate"]      = vasicek_calibrate(macro[asset_related["Wage_rate"][0]], dt=dt)[1]
+        # Expected_returns.loc["Expected_returns", "Real_Estate"]    = 0.0630
 
         for a in ["Domestic_bond","Domestic_stock","Global_stock","Global_bond"]:
             Expected_returns.loc["Expected_returns", a] = np.log(1 + Expected_returns.at['Expected_returns', a])
 
+        Expected_sigma = pd.DataFrame()
         # ▶ Expected Sigma
         Expected_sigma.loc["Expected_sigma", "Domestic_bond"]  = np.log(macro['KIS_total_index']/macro['KIS_total_index'].shift(1)).dropna().std(ddof=1) * np.sqrt(12) * 2
         Expected_sigma.loc["Expected_sigma", "Domestic_stock"] = np.log(macro['KOSPI_index']/macro['KOSPI_index'].shift(1)).dropna().std(ddof=1) * np.sqrt(12) * 2
@@ -1408,7 +1446,7 @@ if all([fl0, fl1, fl2, fl3]):
 
 
         # ▶ 사용자 직접 입력(기본값: Interest_rate에서 가져옴)
-        자산군_모델 = st.selectbox("시뮬레이션 모델", ['Vasicek','GBM','LSTM'], index=0, key="설계_모델")
+        자산군_모델 = st.selectbox("시뮬레이션 모델", ['Vasicek','GBM'], index=0, key="설계_모델") # 'LSTM'
 
         기대수익률_value = st.number_input(
             "기대수익률(직접입력)",
@@ -2415,32 +2453,32 @@ if all([fl0, fl1, fl2, fl3]):
                         "sigma(ret vol)": sd_expected,
                     })
 
-                elif sim_type == 'LSTM':
-                    #simulated_paths[asset] = LSTM_simulated_paths[asset]
-                    simulated_paths_list = []
-                    sim_train_predict_list = []
-                    sim_test_predict_list = []
-                    sim_train_x_values_list = []
-                    sim_test_x_values_list = []
+                # elif sim_type == 'LSTM':
+                #     #simulated_paths[asset] = LSTM_simulated_paths[asset]
+                #     simulated_paths_list = []
+                #     sim_train_predict_list = []
+                #     sim_test_predict_list = []
+                #     sim_train_x_values_list = []
+                #     sim_test_x_values_list = []
 
-                    for _ in tqdm(range(10), desc=f"Simulating {asset}", unit="simulation"):
-                        # LSTM Simulation
-                        data, train_predict, test_predict, train_x_values, test_x_values, future_predictions, time_step = LSTM_simul(asset, seed)
+                #     for _ in tqdm(range(10), desc=f"Simulating {asset}", unit="simulation"):
+                #         # LSTM Simulation
+                #         data, train_predict, test_predict, train_x_values, test_x_values, future_predictions, time_step = LSTM_simul(asset, seed)
                         
-                        # 각각의 결과를 리스트에 저장
-                        simulated_paths_list.append(future_predictions)
-                        sim_train_predict_list.append(train_predict)
-                        sim_test_predict_list.append(test_predict)
-                        sim_train_x_values_list.append(train_x_values)
-                        sim_test_x_values_list.append(test_x_values)
+                #         # 각각의 결과를 리스트에 저장
+                #         simulated_paths_list.append(future_predictions)
+                #         sim_train_predict_list.append(train_predict)
+                #         sim_test_predict_list.append(test_predict)
+                #         sim_train_x_values_list.append(train_x_values)
+                #         sim_test_x_values_list.append(test_x_values)
                         
-                        # Keras 모델의 메모리를 정리합니다.
-                        K.clear_session()
-                        # Python의 메모리를 정리합니다.
-                        gc.collect()
+                #         # Keras 모델의 메모리를 정리합니다.
+                #         K.clear_session()
+                #         # Python의 메모리를 정리합니다.
+                #         gc.collect()
 
-                    # 최종적으로 각 리스트를 딕셔너리에 할당합니다.
-                    simulated_paths[asset] = simulated_paths_list     
+                #     # 최종적으로 각 리스트를 딕셔너리에 할당합니다.
+                #     simulated_paths[asset] = simulated_paths_list     
                     
                 var = st.session_state.자산설계.at[asset, '기초자산']
                 render_and_cache_asset(asset, var, T, macro, simulated_paths, params) 
