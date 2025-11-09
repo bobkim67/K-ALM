@@ -14,6 +14,7 @@ import seaborn as sns
 from scipy.optimize import minimize
 import openpyxl
 from openpyxl.drawing.image import Image
+from xlsxwriter import Workbook
 import matplotlib.ticker as ticker
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -2962,3 +2963,4 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("누적수익률 (%)")
                 ax.set_ylabel("빈도수")
                 st.pyplot(fig)
+
