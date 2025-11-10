@@ -1722,7 +1722,6 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-
     with tab6:
         if 'ALM_DB' not in st.session_state or 'ALM_DB_ind' not in st.session_state or 'rates_round_filtered' not in st.session_state:
             # 초기화 및 데이터 저장
@@ -2323,18 +2322,18 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         kappa_dict = {}
         run_info = []
         
-        fl_return = st.file_uploader(":file_folder: Expected returns Upload",type=(["csv","xlsx","xls","pkl"]))
-        if fl_return is not None:
-            Expected_returns = pickle.load(fl_return)
-            st.dataframe(Expected_returns)        
+        # fl_return = st.file_uploader(":file_folder: Expected returns Upload",type=(["csv","xlsx","xls","pkl"]))
+        # if fl_return is not None:
+        #     Expected_returns = pickle.load(fl_return)
+        #     st.dataframe(Expected_returns)        
 
-        fl_sigma = st.file_uploader(":file_folder: Expected sigma Upload",type=(["csv","xlsx","xls","pkl"]))
-        if fl_sigma is not None:
-            Expected_sigma = pickle.load(fl_sigma)
-            st.dataframe(Expected_sigma)
+        # fl_sigma = st.file_uploader(":file_folder: Expected sigma Upload",type=(["csv","xlsx","xls","pkl"]))
+        # if fl_sigma is not None:
+        #     Expected_sigma = pickle.load(fl_sigma)
+        #     st.dataframe(Expected_sigma)
 
-        col1, col2, col3 = st.columns(3)
-        cols = [col1, col2, col3] 
+        # col1, col2, col3 = st.columns(3)
+        # cols = [col1, col2, col3] 
         
         np.random.seed(seed)
         dt = 1 / 12
@@ -2492,18 +2491,20 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 st.info("아직 저장된 그래프가 없습니다. Tab9에서 '실행'을 먼저 눌러주세요.")
                 st.stop()
 
-            # 3개씩 나누어 출력
-            cols = st.columns(3)
-            for idx, (asset, fig) in enumerate(plots.items()):
-                with cols[idx % 3]:   # 현재 행의 (0,1,2) 번째 column 중 하나
-                    st.pyplot(fig)
-                    st.caption(asset)
-                    if asset in params:
-                        with st.expander(f"{asset} 파라미터 보기"):
-                            st.json(params[asset])
-                # 새 행으로 넘어가야 할 때 다시 st.columns(3) 생성
-                if (idx + 1) % 3 == 0:
-                    cols = st.columns(3)
+        plots = st.session_state.get("plots", {})
+        params = st.session_state.get("params", {})
+        # 3개씩 나누어 출력
+        cols = st.columns(3)
+        for idx, (asset, fig) in enumerate(plots.items()):
+            with cols[idx % 3]:   # 현재 행의 (0,1,2) 번째 column 중 하나
+                st.pyplot(fig)
+                st.caption(asset)
+                if asset in params:
+                    with st.expander(f"{asset} 파라미터 보기"):
+                        st.json(params[asset])
+            # 새 행으로 넘어가야 할 때 다시 st.columns(3) 생성
+            if (idx + 1) % 3 == 0:
+                cols = st.columns(3)
     
     with tab10:
         sim_paths = st.session_state.get('simulated_paths') or {}
@@ -2873,7 +2874,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
 
                 ax.plot(date_labels, CumRet.T * 100, color='gray', alpha=0.25)
                 ax.plot(date_labels, CumRet.mean(axis=0) * 100, color='blue', alpha=0.7, lw=1.0, marker = 'o', markersize=2, label='Mean Path')
-                ax.fill_between(date_labels, p10*100, p90*100, color='blue', alpha=0.15, label='분위 구간(10~90%)')
+                ax.fill_between(date_labels, p10*100, p90*100, color='blue', alpha=0.15, label='Percentile(10~90%)')
 
                 # 데이터 레이블 추가
                 for i, (x, y) in enumerate(zip(date_labels, mean_ret)):
@@ -2886,8 +2887,8 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                         fontweight='medium'
                     )
 
-                ax.set_title("누적수익률 시뮬레이션 (Cumulative Return Simulation)")
-                ax.set_ylabel("누적수익률 (%)")
+                ax.set_title("Cumulative Return Simulation")
+                ax.set_ylabel("Cumulative Return(%)")
                 ax.grid(True, linestyle='--', alpha=0.5)
                 ax.legend()
                 st.pyplot(fig)
@@ -2899,10 +2900,10 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 W_cum = (W_star.T ) * 100 # (A, 산출년수)
 
                 ax.stackplot(date_labels, W_cum, labels=asset_order, alpha=0.8)
-                ax.set_title("연도별 자산비중 (Asset Allocation by Year)")
-                ax.set_ylabel("비중 (%)")
+                ax.set_title("Asset Allocation by Year")
+                ax.set_ylabel("Weight(%)")
                 ax.set_ylim(0, 100)
-                ax.legend(loc='upper right', ncol=2, fontsize=8)
+                ax.legend(loc='upper left', ncol=2, fontsize=8)
                 st.pyplot(fig)
 
                 # ----------------------------------------------------------
@@ -2918,17 +2919,17 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 bar_width = 0.35
                 x = np.arange(len(date_labels))
 
-                ax1.bar(x - bar_width/2, DBO_mean, bar_width, label='DBO (평균)', color='gray', alpha=0.6)
-                ax1.bar(x + bar_width/2, Asset_mean, bar_width, label='Asset (평균)', color='skyblue', alpha=0.8)
-                ax1.set_ylabel("금액")
-                ax1.set_title("DBO vs Asset (평균) 및 펀딩비율")
+                ax1.bar(x - bar_width/2, DBO_mean, bar_width, label='DBO(Avg)', color='gray', alpha=0.6)
+                ax1.bar(x + bar_width/2, Asset_mean, bar_width, label='Asset(Avg)', color='skyblue', alpha=0.8)
+                ax1.set_ylabel("Amount")
+                ax1.set_title("Asset/DBO Funded Ratio")
                 ax1.set_xticks(x)
                 ax1.set_xticklabels(date_labels)
                 ax1.grid(True, linestyle='--', alpha=0.4)
 
                 ax2 = ax1.twinx()
-                ax2.plot(x, FR_mean, color='brown', marker='o', markersize=2, label='FR (평균)')
-                ax2.set_ylabel("펀딩비율 (FR)")
+                ax2.plot(x, FR_mean, color='brown', marker='o', markersize=2, label='FR(Avg)')
+                ax2.set_ylabel("Funded Ratio")
                 ax2.axhline(1.0, color='brown', linestyle='--', alpha=0.5)
                 ax2.yaxis.set_major_formatter(ticker.PercentFormatter(1.0, decimals=1))
 
@@ -2956,11 +2957,10 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.hist(Cum_selected * 100, bins=50, color='skyblue', alpha=0.5, edgecolor='deepskyblue')
                 ax.axvline(0, color='red', linestyle='--', lw=1)
                 ax.set_title(
-                    f"Year [{selected_idx}] {selected_label} 누적수익률 분포\n"
+                    f"Year [{selected_idx}] {selected_label} Cumulative Return Dist.\n"
                     f"Shortfall Risk: {shortfall_rate*100:.3f}%  ({shortfall_count}/{len(Cum_selected)})"
                 )
                 ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
-                ax.set_xlabel("누적수익률 (%)")
-                ax.set_ylabel("빈도수")
+                ax.set_xlabel("Cumulative Return(%)")
+                ax.set_ylabel("Frequency")
                 st.pyplot(fig)
-
