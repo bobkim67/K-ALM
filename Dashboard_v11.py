@@ -2921,7 +2921,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
 
                 ax1.bar(x - bar_width/2, DBO_mean, bar_width, label='DBO(Avg)', color='gray', alpha=0.6)
                 ax1.bar(x + bar_width/2, Asset_mean, bar_width, label='Asset(Avg)', color='skyblue', alpha=0.8)
-                ax1.set_ylabel("Amount")
+                ax1.set_ylabel("Amount(krw)")
                 ax1.set_title("Asset/DBO Funded Ratio")
                 ax1.set_xticks(x)
                 ax1.set_xticklabels(date_labels)
@@ -2964,3 +2964,4 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
+
