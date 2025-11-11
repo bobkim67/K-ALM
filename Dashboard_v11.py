@@ -1033,7 +1033,7 @@ with tab1:
     if fl4 is not None:
         filename = fl4.name
         st.write(filename)
-        Exp_rt_xl = pd.read_excel(fl4, index_col=0)
+        Exp_rt_xl = pd.read_excel(fl4)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
         Exp_rt_xl = pd.read_excel(urljoin(default_url, quote("기대수익률_v0.xlsx")))
@@ -2964,4 +2964,5 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
+
 
