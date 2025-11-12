@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import io
@@ -676,7 +675,7 @@ def simul(명부, 기준일, sim_yr, 할인율, bu_i):
                 '임원연말퇴직금추계액': 0,
                 '지급배수': 1,
                 '가산개수': 0,
-                '가산년수': 0,
+                #'가산년수': 0,
                 '성별': st.session_state.신입명부['성별'][new[i]],
                 '생년월일': 시산기준일 - pd.DateOffset(years=st.session_state.신입명부['연령'][new[i]]),
                 '연령': st.session_state.신입명부['연령'][new[i]],
@@ -889,6 +888,10 @@ def _compute_FR(x, initial_asset_value):
         FR[:, t] = Asset[:, t] / DBO_mat[t]
         Surp[:, t] = Asset[:, t] - DBO_mat[t]
     return R_port, Asset, FR, Surp
+
+def _compute_FR_trimmed(x, init_val):
+    R_port, Asset, FR, Surp = _compute_FR(x, init_val)
+    return R_port[:, 1:], Asset[:, 1:], FR[:, 1:], Surp[:, 1:]
 
 def make_ef_for_year(R: np.ndarray,
                     bounds: list,
@@ -2713,28 +2716,36 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         with col1:
             fig, ax = plt.subplots(figsize=(7, 5))
             colors = ['C0','C1','C2','C3','C4','C5','C6','C7']
-            for year in range(산출년수):
-                wsY, muY, SigY = ef_results[year]['wsY'], ef_results[year]['muY'], ef_results[year]['SigY']
+            for i, d in enumerate(dates[1:], start=1):
+                wsY, muY, SigY = ef_results[i]['wsY'], ef_results[i]['muY'], ef_results[i]['SigY']
                 if wsY.size == 0:
                     continue
+                #라벨
+                fy_label = f"FY{d.strftime('%y')}"
+                #EF계산
                 risks = np.sqrt(np.einsum('ij,jk,ik->i', wsY, SigY, wsY))
                 rets = wsY @ muY
+                #EF곡선 그리기
                 ax.plot(risks, rets, marker='o', ms=3, lw=1,
-                        label=f"Year {year+1}", color=colors[year % len(colors)])
+                        label=f"Year {i} ({fy_label})", 
+                        color=colors[i % len(colors)])
             ax.set_xlabel("Volatility"); ax.set_ylabel("Expected Return")
+            ax.xaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0, decimals=1))
+            ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0, decimals=1))
             ax.set_title("Per-Year Efficient Frontiers")
-            ax.grid(True); ax.legend()
+            ax.grid(True)
+            ax.legend()
             st.pyplot(fig)
 
         # --- (우) Sharpe_excess 기준 Top3 ---
         with col2:
             rows = [] 
-            for year in range(산출년수):
-                wsY, muY, SigY = ef_results[year]['wsY'], ef_results[year]['muY'], ef_results[year]['SigY']
+            for i, d in enumerate(dates[1:], start=1):
+                wsY, muY, SigY = ef_results[i]['wsY'], ef_results[i]['muY'], ef_results[i]['SigY']
                 if wsY.size == 0:
                     continue
 
-                target_date = pd.Timestamp(기준일) + pd.DateOffset(years=year)
+                target_date = pd.Timestamp(기준일) + pd.DateOffset(years=i)
                 # rf_series에서 해당 날짜의 값 직접 추출
                 rf = float(rf_series.loc[target_date])
 
@@ -2744,10 +2755,13 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
 
                 take = min(3, len(sharpe_ex))
                 top_idx = np.argsort(sharpe_ex)[-take:][::-1]
-
+                
+                #라벨
+                fy_label = f"FY{d.strftime('%y')}"
+                
                 for rank, k in enumerate(top_idx, start=1):
                     row = {
-                        "Year": f"Year {year+1}",
+                        "Year": f"Year {i} ({fy_label})",
                         "Rank": rank,
                         "r_f": rf,
                         "Vol": float(risks[k]),
@@ -2785,9 +2799,9 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         with colA:
             initial_asset_input = st.number_input("적립금(직접입력)", step=1, value=0, key="초년도 적립금")
         with colB:
-            target_return = st.number_input("누적 수익률 하한(%)", value=3.0, step=0.5, format="%.1f")/100.0
+            target_return = st.number_input("목표 수익률(%)", value=3.0, step=0.5, format="%.1f")/100.0
         with colC:            
-            p_neg_max     = st.number_input("누적 손실확률 상한(%)", value=10.0, step=1.0, format="%.1f")/100.0
+            p_neg_max     = st.number_input("전체기간 손실확률 상한(%)", value=10.0, step=1.0, format="%.1f")/100.0
 
         # ===========================
         # 4) ALM 자산배분 (연도별 최적화)
@@ -2815,12 +2829,12 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
             # 6️⃣ 제약식 및 목적함수
             constraints = (
                 [{'type': 'eq', 'fun': lambda x, t=t: np.sum(x.reshape(산출년수, A)[t, :]) - 1.0} for t in range(산출년수)] +
-                [{'type': 'ineq', 'fun': lambda x: _compute_FR(x, initial_asset_value)[2][:, -1].mean() - 1.0},
-                {'type': 'ineq', 'fun': lambda x: _compute_FR(x, initial_asset_value)[0].mean() - target_return},
-                {'type': 'ineq', 'fun': lambda x: p_neg_max - ((np.prod(1 + _compute_FR(x, initial_asset_value)[0], axis=1) - 1 < 0).mean())}]
+                [{'type': 'ineq', 'fun': lambda x: _compute_FR_trimmed(x, initial_asset_value)[2][:, -1].mean() - 1.0},
+                {'type': 'ineq', 'fun': lambda x: _compute_FR_trimmed(x, initial_asset_value)[0].mean() - target_return},
+                {'type': 'ineq', 'fun': lambda x: p_neg_max - ((np.prod(1 + _compute_FR_trimmed(x, initial_asset_value)[0], axis=1) - 1 < 0).mean())}]
             )
 
-            obj = lambda x: np.std(_compute_FR(x, initial_asset_value)[2][:, -1], ddof=1)   
+            obj = lambda x: np.std(_compute_FR_trimmed(x, initial_asset_value)[2][:, -1], ddof=1)   
                      
             opt = minimize(obj, x0, method="SLSQP", bounds=bounds,
                         constraints=constraints, options={"ftol": 1e-9, "maxiter": 2000})
@@ -2847,22 +2861,27 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
             DBO_mat = st.session_state["DBO_mat"]
 
             # ---- 결과 요약 ----
-            dfW = pd.DataFrame(W_star, index=[f"Year {i} ({d.strftime('%Y-%m')})" for i, d in enumerate(dates)], columns=asset_order)
+            W_star_adj = W_star[1:, :]
+            dfW = pd.DataFrame(W_star_adj, index=[f"Year {i} ({d.strftime('%Y-%m')})" for i, d in enumerate(dates[1:], start=1)], columns=asset_order)
             st.subheader("연도별 최적 비중")
             st.dataframe(dfW.style.format("{:.2%}"))
 
             # ---- 성과 요약 ----
-            CumRet = np.cumprod(1 + R_port_star, axis=1) - 1
+            R_port_adj = R_port_star[:, 1:]
+            CumRet = np.cumprod(1 + R_port_adj, axis=1) - 1
+            print("R_port_adj shape:", R_port_adj.shape)
+            print("dates[1:] length:", len(dates[1:]))            
             dfCum = pd.DataFrame({
-                "연도별 구간수익률(E[r_t])": R_port_star.mean(axis=0),
-                "연도별 원본손실 확률(Pr[r_t<0])": (R_port_star < 0).mean(axis=0),
+                "연도별 구간수익률(E[r_t])": R_port_adj.mean(axis=0),
+                "연도별 원본손실 확률(Pr[r_t<0])": (R_port_adj < 0).mean(axis=0),
                 "누적수익률(E[Cum(r_t)])": CumRet.mean(axis=0),
                 "누적 표준편차(σ[Cum(r_t)])": CumRet.std(axis=0, ddof=1),
                 "누적 원본손실 확률(Pr[Cum(r_t)<0])": (CumRet < 0).mean(axis=0),
-            }, index=[f"Year {i} ({d.strftime('%Y-%m')})" for i, d in enumerate(dates)])
+            }, index=[f"Year {i} ({d.strftime('%Y-%m')})" for i, d in enumerate(dates[1:], start=1)])
             st.subheader("연도별 성과 요약")
             st.dataframe(dfCum.style.format("{:.2%}"))
 
+            date_labels_adj = [d.strftime("%Y-%m") for d in dates[1:]]
             col1, col2 = st.columns(2)
             with col1:
                 # 1️⃣ 누적수익률 플롯 (Cumulative Return Simulation, 95% 신뢰구간)
@@ -2870,25 +2889,25 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
 
                 p10 = np.percentile(CumRet, 10, axis=0)
                 p90 = np.percentile(CumRet, 90, axis=0)
-                mean_ret = CumRet.mean(axis=0) * 100
+                mean_ret = CumRet.mean(axis=0)
 
-                ax.plot(date_labels, CumRet.T * 100, color='gray', alpha=0.25)
-                ax.plot(date_labels, CumRet.mean(axis=0) * 100, color='blue', alpha=0.7, lw=1.0, marker = 'o', markersize=2, label='Mean Path')
-                ax.fill_between(date_labels, p10*100, p90*100, color='blue', alpha=0.15, label='Percentile(10~90%)')
+                ax.plot(date_labels_adj, CumRet.T, color='gray', alpha=0.25)
+                ax.plot(date_labels_adj, CumRet.mean(axis=0), color='blue', alpha=0.7, lw=1.0, marker = 'o', markersize=2, label='Mean Path')
+                ax.fill_between(date_labels_adj, p10, p90, color='blue', alpha=0.15, label='Percentile(10~90%)')
 
                 # 데이터 레이블 추가
-                for i, (x, y) in enumerate(zip(date_labels, mean_ret)):
+                for x, y in zip(date_labels_adj, mean_ret):
                     ax.text(
-                        x, y, f"{y:.2f}%",          # 값 표시 (소수점 2째자리)
+                        x, y, f"{y*100:.2f}%",          # 값 표시 (소수점 2째자리)
                         fontsize=8,
                         color='blue',
                         ha='center', va='bottom',   # 중앙 정렬, 점 위쪽에 표시
                         rotation=0,
                         fontweight='medium'
                     )
-
+                ax.yaxis.set_major_formatter(ticker.PercentFormatter(1.0, decimals=1))
                 ax.set_title("Cumulative Return Simulation")
-                ax.set_ylabel("Cumulative Return(%)")
+                ax.set_ylabel("Cumulative Return")
                 ax.grid(True, linestyle='--', alpha=0.5)
                 ax.legend()
                 st.pyplot(fig)
@@ -2897,9 +2916,9 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
 
                 # 2️⃣ 연도별 자산비중 영역그래프 (Stacked Area Chart)
                 fig, ax = plt.subplots(figsize=(8, 5))
-                W_cum = (W_star.T ) * 100 # (A, 산출년수)
+                W_cum = (W_star_adj.T ) * 100 # (A, 산출년수)
 
-                ax.stackplot(date_labels, W_cum, labels=asset_order, alpha=0.8)
+                ax.stackplot(date_labels_adj, W_cum, labels=asset_order, alpha=0.8)
                 ax.set_title("Asset Allocation by Year")
                 ax.set_ylabel("Weight(%)")
                 ax.set_ylim(0, 100)
@@ -2912,19 +2931,19 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 fig, ax1 = plt.subplots(figsize=(8, 5))
 
                 # 평균값 계산
-                DBO_mean = DBO_mat.mean(axis=1)
-                Asset_mean = Asset_star.mean(axis=0)
-                FR_mean = FR_star.mean(axis=0)
+                DBO_mean = DBO_mat.mean(axis=1)[1:]
+                Asset_mean = Asset_star.mean(axis=0)[1:]
+                FR_mean = FR_star.mean(axis=0)[1:]
 
                 bar_width = 0.35
-                x = np.arange(len(date_labels))
+                x = np.arange(len(date_labels_adj))
 
                 ax1.bar(x - bar_width/2, DBO_mean, bar_width, label='DBO(Avg)', color='gray', alpha=0.6)
                 ax1.bar(x + bar_width/2, Asset_mean, bar_width, label='Asset(Avg)', color='skyblue', alpha=0.8)
                 ax1.set_ylabel("Amount(krw)")
                 ax1.set_title("Asset/DBO Funded Ratio")
                 ax1.set_xticks(x)
-                ax1.set_xticklabels(date_labels)
+                ax1.set_xticklabels(date_labels_adj)
                 ax1.grid(True, linestyle='--', alpha=0.4)
 
                 ax2 = ax1.twinx()
@@ -2941,10 +2960,10 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
 
                 # ----------------------------------------------------------
                 # 4️⃣ 연도별 Shortfall Risk (선택형)
-                selected_label = st.selectbox("연도 선택", date_labels, index=0)
+                selected_label = st.selectbox("연도 선택", date_labels_adj, index=0)
 
                 # 선택된 날짜에 대응하는 인덱스 찾기
-                selected_idx = date_labels.index(selected_label)
+                selected_idx = date_labels_adj.index(selected_label)
 
                 # 선택한 연도의 누적수익률
                 Cum_selected = CumRet[:, selected_idx]
@@ -2964,5 +2983,3 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
-
-
