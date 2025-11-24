@@ -1382,9 +1382,9 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     st.write("가정 별 비중 합계 값이 100%가 되도록 재설정")
                 else:
                     신입명부 = pd.DataFrame([신입가정1], index = [1])
-                    신입명부.loc[신입명부['입사일'] == '연중', '입사일_date'] = date(기준일.year + 1, 7, 1)
-                    신입명부.loc[신입명부['입사일'] == '연초', '입사일_date'] = date(기준일.year + 1, 1, 1)
-                    신입명부.loc[신입명부['입사일'] == '연말', '입사일_date'] = date(기준일.year + 1, 12, 31)
+                    신입명부.loc[신입명부['입사일'] == '연중', '입사일_date'] = date(기준일.year + 1, 기준일.month, 1) + relativedelta(months=+7)
+                    신입명부.loc[신입명부['입사일'] == '연초', '입사일_date'] = date(기준일.year + 1, 기준일.month, 1)
+                    신입명부.loc[신입명부['입사일'] == '연말', '입사일_date'] = date(기준일.year, 기준일.month, 기준일.day) + relativedelta(months=+12)
                     st.session_state.신입명부 = 신입명부
                     st.write("직원 설정:", 신입명부.iloc[:, :-1])
                     
@@ -1393,9 +1393,9 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     st.write("가정 별 비중 합계 값이 100%가 되도록 재설정")
                 else:
                     신입명부 = pd.concat([pd.DataFrame([신입가정1], index = [1]), pd.DataFrame([신입가정2], index = [2])])
-                    신입명부.loc[신입명부['입사일'] == '연중', '입사일_date'] = date(기준일.year + 1, 7, 1)
-                    신입명부.loc[신입명부['입사일'] == '연초', '입사일_date'] = date(기준일.year + 1, 1, 1)
-                    신입명부.loc[신입명부['입사일'] == '연말', '입사일_date'] = date(기준일.year + 1, 12, 31)
+                    신입명부.loc[신입명부['입사일'] == '연중', '입사일_date'] = date(기준일.year + 1, 기준일.month, 1) + relativedelta(months=+7)
+                    신입명부.loc[신입명부['입사일'] == '연초', '입사일_date'] = date(기준일.year + 1, 기준일.month, 1)
+                    신입명부.loc[신입명부['입사일'] == '연말', '입사일_date'] = date(기준일.year, 기준일.month, 기준일.day) + relativedelta(months=+12)
                     st.session_state.신입명부 = 신입명부
                     st.write("직원 설정:", 신입명부.iloc[:, :-1])
 
@@ -2983,3 +2983,4 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
+
