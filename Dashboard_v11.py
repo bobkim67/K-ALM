@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import io
@@ -1382,7 +1383,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     st.write("가정 별 비중 합계 값이 100%가 되도록 재설정")
                 else:
                     신입명부 = pd.DataFrame([신입가정1], index = [1])
-                    신입명부.loc[신입명부['입사일'] == '연중', '입사일_date'] = date(기준일.year + 1, 기준일.month, 1) + relativedelta(months=+7)
+                    신입명부.loc[신입명부['입사일'] == '연중', '입사일_date'] = date(기준일.year, 기준일.month, 1) + relativedelta(months=+7)
                     신입명부.loc[신입명부['입사일'] == '연초', '입사일_date'] = date(기준일.year + 1, 기준일.month, 1)
                     신입명부.loc[신입명부['입사일'] == '연말', '입사일_date'] = date(기준일.year, 기준일.month, 기준일.day) + relativedelta(months=+12)
                     st.session_state.신입명부 = 신입명부
@@ -1393,7 +1394,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     st.write("가정 별 비중 합계 값이 100%가 되도록 재설정")
                 else:
                     신입명부 = pd.concat([pd.DataFrame([신입가정1], index = [1]), pd.DataFrame([신입가정2], index = [2])])
-                    신입명부.loc[신입명부['입사일'] == '연중', '입사일_date'] = date(기준일.year + 1, 기준일.month, 1) + relativedelta(months=+7)
+                    신입명부.loc[신입명부['입사일'] == '연중', '입사일_date'] = date(기준일.year, 기준일.month, 1) + relativedelta(months=+7)
                     신입명부.loc[신입명부['입사일'] == '연초', '입사일_date'] = date(기준일.year + 1, 기준일.month, 1)
                     신입명부.loc[신입명부['입사일'] == '연말', '입사일_date'] = date(기준일.year, 기준일.month, 기준일.day) + relativedelta(months=+12)
                     st.session_state.신입명부 = 신입명부
@@ -2020,6 +2021,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         ALM_DB_sense = {}
         ALM_DB_ind_sense = {}
         matrix_data = {}
+        matrix_data_NC = {}
         if 'ALM_DB_sim' not in st.session_state:
             st.session_state.ALM_DB_sim = {}
 
@@ -2063,39 +2065,84 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                         ALM_DB_ind_sense[민감도_i[j]][민감도_bu[k]] = result_table
                     명부 = 명부_dict[0]
 
-            # ALM_DB_sense 딕셔너리를 반복하여 matrix_data 딕셔너리에 DBO 값을 추가
+            # --- 기존: matrix_data에는 DBO만 기록 ---
             for 할인율, bu_data in ALM_DB_sense.items():
                 for bu, values in bu_data.items():
                     DBO = '{:,.0f}'.format(values['DBO'])
-                    # bu 값을 키로 사용하고, 해당 키의 값으로 딕셔너리를 할당
                     matrix_data.setdefault(bu, {})[할인율] = DBO
 
-            # 기준값 추출 (예: 할인율과 bu 값이 모두 0인 경우의 DBO 값)
-            baseline_value = ALM_DB_sense['할인율']['bu']['DBO']
+            # --- 추가: NC도 동일 방식으로 matrix_data_NC 생성 ---
+            for 할인율, bu_data in ALM_DB_sense.items():
+                for bu, values in bu_data.items():
+                    NC = '{:,.0f}'.format(values['NC'])
+                    matrix_data_NC.setdefault(bu, {})[할인율] = NC
 
-            # 오차율 계산
+
+            # 기준값 추출 (예: 할인율과 bu 값이 모두 0인 경우의 DBO 값)
+            baseline_DBO = ALM_DB_sense['할인율']['bu']['DBO']
+            baseline_NC = ALM_DB_sense['할인율']['bu']['NC']
+
+            # --- NC 민감도 테이블 생성 ---
+            matrix_data_NC = {}
+            for 할인율, bu_data in ALM_DB_sense.items():
+                for bu, values in bu_data.items():
+                    NC = '{:,.0f}'.format(values['NC'])
+                    matrix_data_NC.setdefault(bu, {})[할인율] = NC
+
+            # --- 오차율 계산 (DBO) ---
             error_rate_matrix = {
                 할인율: {
-                    bu: f"{((values['DBO'] - baseline_value) / baseline_value) * 100:.2f}%"
+                    bu: f"{((values['DBO'] - baseline_DBO) / baseline_DBO) * 100:.2f}%"
                     for bu, values in 할인율_data.items()
                 }
                 for 할인율, 할인율_data in ALM_DB_sense.items()
             }
+
+            # --- 오차율 계산 (NC) ---
+            error_rate_matrix_NC = {
+                할인율: {
+                    bu: f"{((values['NC'] - baseline_NC) / baseline_NC) * 100:.2f}%"
+                    for bu, values in 할인율_data.items()
+                }
+                for 할인율, 할인율_data in ALM_DB_sense.items()
+            }
+
             
             col1, col2, col3 = st.columns(3)
-                # matrix_data 딕셔너리를 DataFrame으로 변환
-            with col1:
-                st.dataframe(pd.DataFrame(matrix_data))        # 오차율 메트릭스를 DataFrame으로 변환
-            with col2:        
-                st.dataframe(pd.DataFrame(error_rate_matrix))
-            with col3:
-                st.dataframe(pd.DataFrame(sums, columns=['연도별 DBO flow']), height = 210)
 
+            with col1:
+                st.write("### DBO 민감도")
+                st.dataframe(pd.DataFrame(matrix_data))
+
+            with col2:
+                st.write("### NC 민감도")
+                st.dataframe(pd.DataFrame(matrix_data_NC))
+
+            with col3:
+                st.write("### 연도별 DBO Flow")
+                st.dataframe(pd.DataFrame(sums, columns=['연도별 DBO flow']), height=210)
+
+            # ------- 다음 줄에 오차율 두 개 추가 -------
+            st.write("### DBO 오차율(%)")
+            st.dataframe(pd.DataFrame(error_rate_matrix))
+
+            st.write("### NC 오차율(%)")
+            st.dataframe(pd.DataFrame(error_rate_matrix_NC))
+
+            # ---------------------
+            #     엑셀 출력
+            # ---------------------
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                pd.DataFrame(matrix_data).to_excel(writer, sheet_name='민감도', index=True)
-                pd.DataFrame(error_rate_matrix).to_excel(writer, sheet_name='민감도(%)', index=True)
-                pd.DataFrame(pd.DataFrame(sums, columns=['연도별 DBO flow'])).to_excel(writer, sheet_name='연도별 DBO 분포', index=True)                        
+                pd.DataFrame(matrix_data).to_excel(writer, sheet_name='DBO 민감도', index=True)
+                pd.DataFrame(matrix_data_NC).to_excel(writer, sheet_name='NC 민감도', index=True)
+
+                pd.DataFrame(error_rate_matrix).to_excel(writer, sheet_name='DBO 민감도(%)', index=True)
+                pd.DataFrame(error_rate_matrix_NC).to_excel(writer, sheet_name='NC 민감도(%)', index=True)
+
+                pd.DataFrame(sums, columns=['연도별 DBO flow']).to_excel(
+                    writer, sheet_name='연도별 DBO 분포', index=True
+                )                   
             excel_data = output.getvalue()
 
             st.download_button(
@@ -2983,4 +3030,3 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
-
