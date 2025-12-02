@@ -731,6 +731,7 @@ def simul(명부, 기준일, sim_yr, 할인율, bu_i):
     current_retired = (result_table['정년'] <= result_table['시산연령']).sum()
     new_retired = current_retired - (retired_cumulative if sim_yr > 0 else 0)
     retired.append(new_retired)
+    retired_cumulative = current_retired
           
     명부 = 명부[명부['사원번호'].isin(result_table['사번'])]
     
@@ -3032,4 +3033,5 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
+
 
