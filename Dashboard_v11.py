@@ -581,6 +581,9 @@ def sample_res(cal_table, lapse_table):
     return sample_res, 보정계수
 
 def simul(명부, 기준일, sim_yr, 할인율, bu_i):
+    global retired_cumulative
+    if sim_yr == 0:
+        retired_cumulative = 0          
     시산기준일 = date(기준일.year + sim_yr, 기준일.month, 기준일.day)
     total_emp = len(명부)
     result_data = np.zeros((total_emp, 22), dtype = 'object')
@@ -727,7 +730,6 @@ def simul(명부, 기준일, sim_yr, 할인율, bu_i):
         '사번', '현재연령', '시산연령', '근속년수', '지급률', '기준급여', 'DBO', '추계액', 'NC', 'EBP', 't*DBO',
         'DUR', '보정계수', '평가방법', '정년', '할당', '임직원', 'bu', '승급률', '퇴직률', '사망률', '할인율'
     ])
-
     current_retired = (result_table['정년'] <= result_table['시산연령']).sum()
     new_retired = current_retired - (retired_cumulative if sim_yr > 0 else 0)
     retired.append(new_retired)
@@ -3033,5 +3035,6 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
+
 
 
