@@ -577,13 +577,13 @@ def sample_res(cal_table, lapse_table):
     sample_res['NC'] = cal_table[:, 16].sum() * 보정계수_누적
     sample_res['EBP'] = cal_table[0, 18] * 보정계수_누적
     sample_res['CF'] = cal_table[:,13]
-        
-    return sample_res, 보정계수
+    return sample_res, 보정계수 
 
 def simul(명부, 기준일, sim_yr, 할인율, bu_i):
     global retired_cumulative
     if sim_yr == 0:
-        retired_cumulative = 0          
+        retired_cumulative = 0
+
     시산기준일 = date(기준일.year + sim_yr, 기준일.month, 기준일.day)
     total_emp = len(명부)
     result_data = np.zeros((total_emp, 22), dtype = 'object')
@@ -656,7 +656,7 @@ def simul(명부, 기준일, sim_yr, 할인율, bu_i):
     ])
     
     퇴직자 = 0 if sim_yr == 0 else retired[sim_yr - 1]
-    if 신입가정 > 0:
+    if sim_yr > 0 and 신입가정 > 0:
         new_emp = int(np.sum(1 - result_data[:, 12][result_data[:, 12] != 0])) + 퇴직자
         new_emp_data = []
         
@@ -668,12 +668,22 @@ def simul(명부, 기준일, sim_yr, 할인율, bu_i):
                 new = [1] * round(new_emp * st.session_state.신입명부['비중'][1])
             else:
                 new = [1] * round(new_emp * st.session_state.신입명부['비중'][1]) + [2] * (new_emp - round(new_emp * st.session_state.신입명부['비중'][1]))
-            
+
+            입사일구분 = st.session_state.신입명부['입사일'][new[i]]   # 연초 / 연중 / 연말
+            if 입사일구분 == "연초":
+                tmp = 시산기준일 - relativedelta(years=1) + relativedelta(days=1)
+                entry_dt = date(tmp.year, tmp.month, tmp.day)
+            elif 입사일구분 == "연중":
+                tmp = 시산기준일 - relativedelta(months=6) + relativedelta(days=1)
+                entry_dt = date(tmp.year, tmp.month, tmp.day)
+            else:   # 연말
+                entry_dt = 시산기준일
+
             new_emp_data.append({
                 '사원번호': len(명부) + i + 1,
                 '가입대상분류': st.session_state.신입명부['직급'][new[i]],
-                '입사일': date(시산기준일.year, st.session_state.신입명부['입사일_date'][new[i]].month, st.session_state.신입명부['입사일_date'][new[i]].day),
-                '기산일': date(시산기준일.year, st.session_state.신입명부['입사일_date'][new[i]].month, st.session_state.신입명부['입사일_date'][new[i]].day),
+                '입사일': entry_dt, # date(시산기준일.year, st.session_state.신입명부['입사일_date'][new[i]].month, st.session_state.신입명부['입사일_date'][new[i]].day),
+                '기산일': entry_dt, #date(시산기준일.year, st.session_state.신입명부['입사일_date'][new[i]].month, st.session_state.신입명부['입사일_date'][new[i]].day),
                 '기준급여': st.session_state.신입명부['기준급여'][new[i]],
                 '당월퇴직추계': 0,
                 '임원연말퇴직금추계액': 0,
@@ -683,7 +693,7 @@ def simul(명부, 기준일, sim_yr, 할인율, bu_i):
                 '성별': st.session_state.신입명부['성별'][new[i]],
                 '생년월일': 시산기준일 - pd.DateOffset(years=st.session_state.신입명부['연령'][new[i]]),
                 '연령': st.session_state.신입명부['연령'][new[i]],
-                '근속년수': (시산기준일 - st.session_state.신입명부['입사일_date'][new[i]]).days / 365.25
+                '근속년수': (시산기준일 - entry_dt).days / 365.25
             })
         new_emp_df = pd.DataFrame(new_emp_data)
         명부 = pd.concat([명부, new_emp_df], ignore_index=True)
@@ -734,7 +744,8 @@ def simul(명부, 기준일, sim_yr, 할인율, bu_i):
     new_retired = current_retired - (retired_cumulative if sim_yr > 0 else 0)
     retired.append(new_retired)
     retired_cumulative = current_retired
-          
+
+    # result_table = result_table[result_table['정년'] >= result_table['시산연령']]
     명부 = 명부[명부['사원번호'].isin(result_table['사번'])]
     
     return result_table, 명부, cf_data
@@ -1781,7 +1792,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ALM_DB[interval] = {}
                 ALM_DB_ind[interval] = {}
                 results_dict[interval] = {}
-                cf[interval] = {}
+                cf[interval] = {} 
             
                 for sim_yr in range(0, 산출년수): 
                     시산기준일 = date(기준일.year + sim_yr, 기준일.month, 기준일.day)
@@ -3035,6 +3046,3 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
-
-
-
