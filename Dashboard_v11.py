@@ -1264,7 +1264,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     직원1_설계['정년초과_평가'] = 직원1_설계['평가방법']            
                 
                 else:                
-                    직원1_설계['정년초과_설정'] = st.radio("정년초과 설정", ["정년 입력", "현재연령 기준"], key = "정년초과_설정_직원1")
+                    직원1_설계['정년초과_설정'] = st.radio("정년초과 설정", ["정년 입력", "현재연령 기준"], index=1, key = "정년초과_설정_직원1")
                     
                     if 직원1_설계['정년초과_설정'] == "정년 입력":
                         직원1_설계['정년초과_정년'] = st.number_input("정년 (정수 입력)", value=60, step=1, key="정년초과_정년_직원1")
@@ -1273,7 +1273,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                         직원1_설계['정년초과_정년'] = st.number_input("현재연령 기준", value=1, step=1, key="정년초과_정년_직원1")
                         #직원1_설계['정년초과_정년'] = st.selectbox("현재연령 기준", ['+1', '+2', '+3', '+4', '+5', '+6', '+7', '+8', '+9', '+10'], key="정년초과_정년_직원1")        
                     
-                    직원1_설계['정년초과_평가'] = st.selectbox("정년초과 평가", ['PUC', '추계액'], key="정년초과_평가_직원1")       
+                    직원1_설계['정년초과_평가'] = st.selectbox("정년초과 평가", ['PUC', '추계액'], index=1, key="정년초과_평가_직원1")       
                 
             else:
                 st.write("직원1 설정을 활성화하려면 직급 개수를 증가시켜주세요.")
@@ -1314,7 +1314,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     직원2_설계['정년초과_평가'] = 직원2_설계['평가방법']            
                 
                 else:                  
-                    직원2_설계['정년초과_설정'] = st.radio("정년초과 설정", ["정년 입력", "현재연령 기준"], key = "정년초과_설정_직원2")
+                    직원2_설계['정년초과_설정'] = st.radio("정년초과 설정", ["정년 입력", "현재연령 기준"], index=1, key = "정년초과_설정_직원2")
                     
                     if 직원2_설계['정년초과_설정'] == "정년 입력":
                         직원2_설계['정년초과_정년'] = st.number_input("정년 (정수 입력)", value=60, step=1, key="정년초과_정년_직원2")
@@ -1323,7 +1323,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                         직원2_설계['정년초과_정년'] = st.number_input("현재연령 기준", value=1, step=1, key="정년초과_정년_직원2")
                         #직원2_설계['정년초과_정년'] = st.selectbox("현재연령 기준", ['+1', '+2', '+3', '+4', '+5', '+6', '+7', '+8', '+9', '+10'], key="정년초과_정년_직원2")        
                     
-                    직원2_설계['정년초과_평가'] = st.selectbox("정년초과 평가", ['PUC', '추계액'], key="정년초과_평가_직원2")       
+                    직원2_설계['정년초과_평가'] = st.selectbox("정년초과 평가", ['PUC', '추계액'], index=1, key="정년초과_평가_직원2")       
                 
             else:
                 st.write("직원2 설정을 활성화하려면 직급 개수를 증가시켜주세요.")
@@ -2051,7 +2051,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         col1, col2, col3 = st.columns(3)
         with col1:
             st.write("### 민감도 및 지급시기 분포")
-            selected_interval = st.selectbox("Choose an interval:", tabs, index = 7, key = 'DBO_sensitivity_interval')
+            selected_interval = st.selectbox("Choose an interval:", tabs, index = 3, key = 'DBO_sensitivity_interval')
             selected_sim_yr = st.selectbox("Choose a simulation year:", sim_yr, key = 'DBO_sensitivity_sim_yr')
         
         if st.button(label="민감도 산출", key = 'DBO_sensitivity'):
@@ -2085,25 +2085,18 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
             for 할인율, bu_data in ALM_DB_sense.items():
                 for bu, values in bu_data.items():
                     DBO = '{:,.0f}'.format(values['DBO'])
-                    matrix_data.setdefault(bu, {})[할인율] = DBO
+                    matrix_data.setdefault(할인율, {})[bu] = DBO
 
             # --- 추가: NC도 동일 방식으로 matrix_data_NC 생성 ---
             for 할인율, bu_data in ALM_DB_sense.items():
                 for bu, values in bu_data.items():
                     NC = '{:,.0f}'.format(values['NC'])
-                    matrix_data_NC.setdefault(bu, {})[할인율] = NC
+                    matrix_data_NC.setdefault(할인율, {})[bu] = NC 
 
 
             # 기준값 추출 (예: 할인율과 bu 값이 모두 0인 경우의 DBO 값)
             baseline_DBO = ALM_DB_sense['할인율']['bu']['DBO']
             baseline_NC = ALM_DB_sense['할인율']['bu']['NC']
-
-            # --- NC 민감도 테이블 생성 ---
-            matrix_data_NC = {}
-            for 할인율, bu_data in ALM_DB_sense.items():
-                for bu, values in bu_data.items():
-                    NC = '{:,.0f}'.format(values['NC'])
-                    matrix_data_NC.setdefault(bu, {})[할인율] = NC
 
             # --- 오차율 계산 (DBO) ---
             error_rate_matrix = {
@@ -3039,7 +3032,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.hist(Cum_selected * 100, bins=50, color='skyblue', alpha=0.5, edgecolor='deepskyblue')
                 ax.axvline(0, color='red', linestyle='--', lw=1)
                 ax.set_title(
-                    f"Year [{selected_idx}] {selected_label} Cumulative Return Dist.\n"
+                    f"Year [{selected_idx+1}] {selected_label} Cumulative Return Dist.\n"
                     f"Shortfall Risk: {shortfall_rate*100:.3f}%  ({shortfall_count}/{len(Cum_selected)})"
                 )
                 ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%.1f'))
