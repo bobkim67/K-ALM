@@ -66,21 +66,26 @@ def vasicek_calibrate(rates: pd.Series, dt=1/12):
 
 # ---------- Vasicek Simulation (Euler) ----------
 def vasicek_simul(r0, kappa, theta, sigma, simulation_times, T, dt, epsilon_var):
-    """
-    r_{t+1} = r_t + kappa*(theta - r_t)*dt + sigma*sqrt(dt)*dW
-    epsilon_var: (simulation_times x T) DataFrame/ndarray, 각 시뮬·월별 dW ~ N(0,1)
-    """
-    eps = np.asarray(epsilon_var, dtype=float)  # shape: (simulation_times, T)
-    assert eps.shape == (simulation_times, T), "epsilon_var shape mismatch"
+    # --- scalarize (핵심) ---
+    r0    = float(np.asarray(r0).squeeze())
+    kappa = float(np.asarray(kappa).squeeze())
+    theta = float(np.asarray(theta).squeeze())   # ★ 여기 때문에 에러 났던 것
+    sigma = float(np.asarray(sigma).squeeze())
+    dt    = float(np.asarray(dt).squeeze())
 
-    out = np.zeros((simulation_times, T), dtype=float)
+    eps = np.asarray(epsilon_var, dtype=np.float64)
+    if eps.shape != (simulation_times, T):
+        raise ValueError(f"epsilon_var shape mismatch: expected {(simulation_times, T)}, got {eps.shape}")
+
+    out = np.zeros((simulation_times, T), dtype=np.float64)
     out[:, 0] = r0
     sdt = np.sqrt(dt)
 
     for i in range(simulation_times):
         for j in range(1, T):
-            dW = eps[i, j]
+            dW = float(eps[i, j])  # 스칼라 보장
             out[i, j] = out[i, j-1] + kappa*(theta - out[i, j-1])*dt + sigma*sdt*dW
+
     return out
 
 
@@ -3039,3 +3044,4 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 ax.set_xlabel("Cumulative Return(%)")
                 ax.set_ylabel("Frequency")
                 st.pyplot(fig)
+
