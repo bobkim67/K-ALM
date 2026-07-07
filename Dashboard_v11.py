@@ -664,7 +664,11 @@ st.set_page_config(page_title="한국투자증권 ALM 시뮬레이터", page_ico
 st.markdown("""
 <style>
 [data-testid="stMainBlockContainer"], .block-container {
-    padding-top: 1rem;
+    padding-top: 1.5rem;
+}
+h1 {
+    font-size: 1.6rem !important;
+    padding-top: 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
