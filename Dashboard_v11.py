@@ -661,6 +661,14 @@ def _compute_FR_trimmed(x, init_val):
 
 st.set_page_config(page_title="한국투자증권 ALM 시뮬레이터", page_icon=":bar_chart:",layout="wide")
 
+st.markdown("""
+<style>
+[data-testid="stMainBlockContainer"], .block-container {
+    padding-top: 1rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title(" :bar_chart: 한국투자증권 ALM 시뮬레이터")
 
 # Streamlit 앱 생성
