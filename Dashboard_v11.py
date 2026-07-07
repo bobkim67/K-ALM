@@ -663,8 +663,9 @@ st.set_page_config(page_title="한국투자증권 ALM 시뮬레이터", page_ico
 
 st.markdown("""
 <style>
+/* 고정 헤더(3.75rem) 아래로 타이틀이 파고들지 않도록 헤더보다 크게 */
 [data-testid="stMainBlockContainer"], .block-container {
-    padding-top: 1.5rem;
+    padding-top: 4rem;
 }
 h1 {
     font-size: 1.6rem !important;
