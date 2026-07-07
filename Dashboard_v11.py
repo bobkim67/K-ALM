@@ -2381,19 +2381,23 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 plt.xticks(years)
                 st.pyplot(plt)
 
+        # 자산군 구분: 지수레벨형은 연 수익률로 변환, 레벨(YTM/지표)형은 그대로 사용
+        LEVEL_ASSETS = ['Domestic_bond','Domestic_stock','Global_stock','Global_bond']
+        YTM_ASSETS   = ['Real_Estate','PIGP']
+
         # 자산군 별 월별 시나리오를 연도별 시나리오로 구조 변환(1000 * 60 -> 1000 * 5)
         simulated_paths = st.session_state["simulated_paths"]
         combined_all = st.session_state["combined_all"]
-        sim_paths_annual = {} 
-        if simulated_paths != {}: 
-            for idx, asset in enumerate(list(asset_related.keys())):
+        sim_paths_annual = {}
+        if simulated_paths != {}:
+            for asset in list(asset_related.keys()):
                 # ① combined_df에서 macro+simulation 결합된 full 데이터 불러오기
                 combined_all_filtered = combined_all[asset][combined_all[asset].index.month == 기준일.month]  # 기준일 동월 데이터만 추출
                 # ③ 산출기준일 연도에 해당하는 값과 그 전년도 값 사용
                 base_idx = combined_all_filtered.index.year.get_loc(기준일.year)
 
-                if idx < 4:
-                    # 0~3번 자산: 지수형 → 전년 대비 증감률
+                if asset in LEVEL_ASSETS:
+                    # 지수형 자산: 전년 대비 증감률
                     # 기준일 연도부터 이후 산출년도만큼 계산
                     returns_list = []
                     for i in range(base_idx, base_idx + 산출년수):
@@ -2405,7 +2409,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     sim_paths_annual[asset] = pd.DataFrame(returns_list, 
                                                         index=combined_all_filtered.index[base_idx:base_idx + 산출년수])
                 else:
-                    # 4번 이후 자산: 이미 연율값 → 그대로 사용
+                    # 레벨(YTM/지표)형 자산: 이미 연율값 → 그대로 사용
                     sim_paths_annual[asset] = combined_all_filtered.iloc[base_idx:base_idx + 산출년수]
 
             asset_list = list(sim_paths_annual.keys())
@@ -2424,9 +2428,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         # 0) 입력/환경
         # -----------------------------
 
-        # 자산군 구분 및 순서
-        LEVEL_ASSETS = ['Domestic_bond','Domestic_stock','Global_stock','Global_bond']  # 지수레벨
-        YTM_ASSETS   = ['Real_Estate','PIGP']                                           # 레벨(YTM/지표)
+        # 자산군 순서
         asset_order  = ['Domestic_bond','Domestic_stock','Global_bond','Global_stock','Real_Estate','PIGP']
 
          # -----------------------------
@@ -2522,8 +2524,11 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     continue
 
                 target_date = pd.Timestamp(기준일) + pd.DateOffset(years=i)
-                # rf_series에서 해당 날짜의 값 직접 추출
-                rf = float(rf_series.loc[target_date])
+                # 해당 날짜의 rf 추출, 시계열 범위를 벗어나면 마지막 rf로 대체
+                if target_date in rf_series.index:
+                    rf = float(rf_series.loc[target_date])
+                else:
+                    rf = float(rf_series.iloc[-1])
 
                 risks = np.sqrt(np.einsum('ij,jk,ik->i', wsY, SigY, wsY))
                 rets = wsY @ muY
@@ -2616,7 +2621,8 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                         constraints=constraints, options={"ftol": 1e-9, "maxiter": 2000})
 
             if not opt.success:
-                st.error(f"[FAIL] {opt.message}")
+                st.error(f"[FAIL] 최적화 수렴 실패: {opt.message}")
+                st.warning("아래 결과는 최적해가 아닌 초기값(균등비중) 기준으로 표시됩니다.")
             x_star = opt.x if opt.success else x0
 
             R_port_star, Asset_star, FR_star, Surp_star = _compute_FR(x_star, initial_asset_value)
