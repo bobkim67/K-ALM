@@ -4,7 +4,6 @@ import pandas as pd
 import io
 import warnings
 import numpy as np
-from numpy.linalg import lstsq
 from datetime import datetime
 from datetime import date
 from dateutil.relativedelta import relativedelta
@@ -19,15 +18,15 @@ import matplotlib.ticker as ticker
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from urllib.parse import urljoin, quote
-# import matplotlib.font_manager as fm
-# import tensorflow as tf
-# from keras import backend as K
-# from keras.models import Sequential
-# from keras.layers import Dense, LSTM
-# from sklearn.preprocessing import MinMaxScaler
 import pickle
-# import gc
+import hashlib
 from functools import lru_cache
+
+from alm_models import (
+    millions_formatter, vasicek_calibrate, vasicek_simul, vasicek_objective,
+    gbm_simul, gbm_objective, find_optimal_mu,
+    month_offset, year_end_cols, build_new_ALM_DB, make_ef_for_year, liability_year_labels,
+)
 
 warnings.filterwarnings('ignore')
 
@@ -39,263 +38,6 @@ for k in ["plots", "params", "quantile", "real", "combined", "combined_all","com
     st.session_state.setdefault(k, {})
 
 # y 축 틱 레이블을 백만 원 단위로 설정
-def millions_formatter(x, pos):
-    return f'{x / 1_000_000:,.0f}'
-
-# ---------- Vasicek Calibration (AR(1) 등가 OLS) ----------
-def vasicek_calibrate(rates: pd.Series, dt=1/12):
-    r = np.asarray(rates, dtype=float)
-    x = r[:-1]
-    y = r[1:]
-    # y = a + b*x + e  → b = exp(-kappa*dt), a = theta*(1 - b)
-    X = np.column_stack([np.ones_like(x), x])  # [1, x]
-    beta, _, _, _ = lstsq(X, y, rcond=None)
-    a_hat, b_hat = beta
-    # 방어: b_hat이 (0,1) 밖이면 클리핑
-    b_hat = np.clip(b_hat, 1e-6, 1 - 1e-6)
-    kappa = -np.log(b_hat) / dt
-    theta = a_hat / (1 - b_hat)
-    # 잔차로 sigma 추정
-    resid = y - (a_hat + b_hat * x)
-    sigma_eps = np.std(resid, ddof=1)
-    # eps ~ N(0, sigma_eps^2) 이고, 연속시간 sigma는:
-    sigma = sigma_eps * np.sqrt(2 * kappa / (1 - np.exp(-2 * kappa * dt)))
-    r0 = r[-1]
-    return kappa, theta, sigma, r0
-
-
-# ---------- Vasicek Simulation (Euler) ----------
-def vasicek_simul(r0, kappa, theta, sigma, simulation_times, T, dt, epsilon_var):
-    # --- scalarize (핵심) ---
-    r0    = float(np.asarray(r0).squeeze())
-    kappa = float(np.asarray(kappa).squeeze())
-    theta = float(np.asarray(theta).squeeze())   # ★ 여기 때문에 에러 났던 것
-    sigma = float(np.asarray(sigma).squeeze())
-    dt    = float(np.asarray(dt).squeeze())
-
-    eps = np.asarray(epsilon_var, dtype=np.float64)
-    if eps.shape != (simulation_times, T):
-        raise ValueError(f"epsilon_var shape mismatch: expected {(simulation_times, T)}, got {eps.shape}")
-
-    out = np.zeros((simulation_times, T), dtype=np.float64)
-    out[:, 0] = r0
-    sdt = np.sqrt(dt)
-
-    for i in range(simulation_times):
-        for j in range(1, T):
-            dW = float(eps[i, j])  # 스칼라 보장
-            out[i, j] = out[i, j-1] + kappa*(theta - out[i, j-1])*dt + sigma*sdt*dW
-
-    return out
-
-
-# ---------- Vasicek Objective (평균레벨 맞추기) ----------
-def vasicek_objective(kappa, theta, sigma, r0, simulation_times, T, dt, epsilon_var, target_level):
-    kappa = float(np.maximum(kappa[0], 1e-6))
-    sims = vasicek_simul(r0, kappa, theta, sigma, simulation_times, T, dt, epsilon_var)
-    # 방법 A: 마지막 시점 평균레벨을 타깃으로
-    mean_terminal = sims[:, -1].mean()
-    return (mean_terminal - target_level)**2
-
-
-# ---------- GBM Simulation ----------
-def gbm_simul(S0, mu, sigma, simulation_times, T, dt, epsilon_var):
-    """
-    dS/S = mu*dt + sigma*dW  → S_t = S0 * exp( (mu - 0.5*sigma^2)*t + sigma*W_t )
-    epsilon_var: (simulation_times x T) dW ~ N(0,1)
-    """
-    eps = np.asarray(epsilon_var, dtype=float)  # shape: (simulation_times, T)
-    assert eps.shape == (simulation_times, T), "epsilon_var shape mismatch"
-
-    out = np.zeros((simulation_times, T), dtype=float)
-    out[:, 0] = S0
-    sdt = np.sqrt(dt)
-    drift = (mu - 0.5 * sigma**2) * dt
-
-    for i in range(simulation_times):
-        logS = np.log(S0)
-        for j in range(1, T):
-            dW = eps[i, j] * sdt
-            logS = logS + drift + sigma * dW
-            out[i, j] = np.exp(logS)
-    return out
-
-
-# ---------- GBM Objective (목표 수익률 매칭) ----------
-def gbm_objective(mu, target_annual_return, S0, sigma, simulation_times, T, dt, epsilon_var):
-    mu = float(mu[0])  # 월 로그수익률
-    sims = gbm_simul(S0, mu, sigma, simulation_times, T, dt, epsilon_var)
-    mean_terminal = sims[:, -1].mean()
-
-    # 목표지수 수준: 연 수익률 target → 월 로그수익률로 변환
-    monthly_target_return = (1 + target_annual_return) ** (1/12) - 1
-    target_log_ret = np.log(1 + monthly_target_return)
-    target_level = S0 * np.exp(target_log_ret * T)
-
-    return (mean_terminal - target_level)**2
-
-
-# ---------- Wrapper: find_optimal_mu ----------
-def find_optimal_mu(target_annual_return, S0, sigma, simulation_times, T, dt, epsilon_var, init_mu=None):
-    if init_mu is None:
-        init_mu = np.log(1 + target_annual_return) / 12  # 초기 월 로그수익률 추정
-    res = minimize(
-        gbm_objective, x0=init_mu,
-        args=(target_annual_return, S0, sigma, simulation_times, T, dt, epsilon_var),
-        method="Nelder-Mead"
-    )
-    return float(res.x[0])
-
-
-def VasicekCalibration(rates, dt=1/12):
-    n = len(rates)
-    # Implement MLE to calibrate parameters     
-    Sx = sum(rates[0:(n-1)])
-    Sy = sum(rates[1:n])
-    Sxx = np.dot(rates[0:(n-1)], rates[0:(n-1)])
-    Sxy = np.dot(rates[0:(n-1)], rates[1:n])
-    Syy = np.dot(rates[1:n], rates[1:n])
-    theta = (Sy * Sxx - Sx * Sxy) / (n * (Sxx - Sxy) - (Sx**2 - Sx*Sy))
-    kappa = -np.log((Sxy - theta * Sx - theta * Sy + n * theta**2) / (Sxx - 2*theta*Sx + n*theta**2)) / dt
-    a = np.exp(-kappa * dt)
-    sigmah2 = (Syy - 2*a*Sxy + a**2 * Sxx - 2*theta*(1-a)*(Sy - a*Sx) + n*theta**2 * (1-a)**2) / n
-    sigma = np.sqrt(sigmah2*2*kappa / (1-a**2))
-    r0 = rates[n-1]
-    return [kappa, theta, sigma, r0]
-
-def VasicekSimul(var, kappa, mean, sd, simulation_times, dt):    
-    rates = macro[var]
-    theta = mean
-    sigma = sd
-    r0 = VasicekCalibration(rates, dt=1/12)[3]
-    results = np.zeros((simulation_times, T))
-    results[:, 0] = r0  # 초기 조건 설정
-
-    for i in range(simulation_times):
-        results[i, 0] = rates.iloc[-1] + kappa * (theta - rates.iloc[-1]) * dt + sigma * all_epsilon[var].iloc[i,0]
-        for j in range(1, T):
-            dW = all_epsilon[var].iloc[i,j]
-            results[i, j] = results[i, j-1] + kappa * (theta - results[i, j-1]) * dt + sigma * dW
-    return results
-
-def VasicekSimul_Shifted(var, kappa, mean, sd, simulation_times, dt, shift_constant):    
-    rates = macro[var] + shift_constant
-    theta = mean + shift_constant
-    sigma = sd
-    results = np.zeros((simulation_times, T))
-    results[:, 0] = rates.iloc[-1]  # 초기 조건 설정
-
-    for i in range(simulation_times):
-        drift = kappa * (theta - results[i, 0]) * dt
-        diffusion = sigma * all_epsilon[var].iloc[i,0]
-        results[i, 0] += drift + diffusion
-        
-        for j in range(1, T):
-            dW = all_epsilon[var].iloc[i,j]
-            drift = kappa * (theta - results[i, j-1]) * dt
-            diffusion = sigma * dW
-            results[i, j] = results[i, j-1] + drift + diffusion
-    
-    return results - shift_constant # 최종 결과에서 shift를 다시 제거    
-
-def kappa_objective(kappa, *args):
-    var, simulation_times, dt, mean, sd = args
-    simulated_paths = VasicekSimul(var, kappa, mean, sd, simulation_times, dt)
-    return (np.mean(simulated_paths) - mean)**2
-
-def kappa_objective_shifted(kappa, *args):
-    var, simulation_times, dt, mean, sd, shift_constant = args  # Add shift_constant to arguments
-    simulated_paths = VasicekSimul_Shifted(var, kappa, mean, sd, simulation_times, dt, shift_constant)
-    return (np.mean(simulated_paths) - (mean + shift_constant))**2
-
-def GBMSimul(var, mean, sd, simulation_times, dt):    
-    rates = macro[var]
-    results = np.zeros((simulation_times, T))
-
-    for i in range(simulation_times):
-        results[i, 0] = rates.iloc[-1] + (mean - (sd ** 2) / 2) * dt + sd * all_epsilon[var].iloc[i,0] * (dt ** 0.5)
-        for j in range(1, T):
-            dW = all_epsilon[var].iloc[i,j]
-            results[i, j] = results[i, j-1] + (mean - (sd ** 2) / 2) * dt + sd * dW * (dt ** 0.5)
-    return results
-
-def GBM_objective(mean, target_mean, var, sd, simulation_times, dt):
-    simulated_paths = GBMSimul(var, mean, sd, simulation_times, dt)
-    return (np.mean(simulated_paths) - target_mean)**2
-
-def find_optimal_mean(target_mean, var, initial_mean, sd, simulation_times, dt):
-    args = (var, sd, simulation_times, dt)  # initial_mean 제거
-    result = minimize(GBM_objective, initial_mean, args=(target_mean, *args))
-    return result.x[0]
-
-def create_dataset(dataset, time_step=1, target_idx = 0):  # target_column은 G_Bond_10Y를 나타냅니다.
-    dataX, dataY = [], []
-    for i in range(len(dataset) - time_step - 1):
-        a = dataset[i:(i + time_step), :]
-        dataX.append(a)
-        dataY.append(dataset[i + time_step, target_idx])  # G_Bond_10Y 특성을 선택합니다.
-    return np.array(dataX), np.array(dataY)
-
-def predict_future(model, input_data, steps, scaler):
-    var_num = input_data.shape[1]
-    input_data = np.reshape(input_data, (1, input_data.shape[0], input_data.shape[1]))
-    future_predictions = []  # 미래 예측을 저장할 리스트
-    
-    # 한 단계씩 예측을 수행
-    for _ in range(steps):
-        prediction = model.predict(input_data)  # 현재 입력 데이터로 예측 수행
-        future_predictions.append(prediction[0, 0])  # 예측 값을 리스트에 추가
-        
-        # 예측된 값을 입력 데이터의 끝에 추가하고, 가장 오래된 데이터를 제거
-        new_input_data = np.append(input_data[0, 1:], [[prediction[0, 0]] + list(input_data[0, -1, 1:var_num])], axis=0)
-        input_data = np.reshape(new_input_data, (1, new_input_data.shape[0], new_input_data.shape[1]))
-    
-    future_predictions_dummy = np.hstack((np.array(future_predictions).reshape(-1, 1), np.zeros((len(future_predictions), var_num - 1))))
-    future_predictions = scaler.inverse_transform(future_predictions_dummy)[:, 0]
-    return future_predictions
-
-# def LSTM_simul(asset, seed):
-#     data = macro[asset_related[asset]].values
-    
-#     # 데이터 스케일링
-#     scaler = MinMaxScaler(feature_range=(0, 1))
-#     data_scaled = scaler.fit_transform(data)
-
-#     # 학습 데이터와 테스트 데이터 준비
-#     target_idx = 0
-#     time_step = 12
-#     train_size = int(len(data_scaled) * 0.75)
-#     train, test = data_scaled[0:train_size, :], data_scaled[train_size:len(data_scaled), :]
-#     X_train, y_train = create_dataset(train, time_step, target_idx=target_idx)
-#     X_test, y_test = create_dataset(test, time_step, target_idx=target_idx)
-
-#     tf.random.set_seed(seed)
-#     # LSTM 모델 생성
-#     model = Sequential()
-#     model.add(LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))
-#     model.add(LSTM(50, return_sequences=True))
-#     model.add(LSTM(50))
-#     model.add(Dense(1))
-#     model.compile(loss='mean_squared_error', optimizer='adam')
-
-#     # 모델 학습
-#     model.fit(X_train, y_train, validation_data=(X_test, y_test), epochs=100, batch_size=64, verbose=0)
-
-#     #예측
-#     train_predict_dummy = np.hstack((model.predict(X_train), np.zeros((X_train.shape[0], data.shape[1] - 1))))
-#     test_predict_dummy = np.hstack((model.predict(X_test), np.zeros((X_test.shape[0], data.shape[1] - 1))))
-
-#     train_predict = scaler.inverse_transform(train_predict_dummy)[:, target_idx]
-#     test_predict = scaler.inverse_transform(test_predict_dummy)[:, target_idx]
-
-#     train_x_values = np.arange(time_step, len(train_predict) + time_step)
-#     test_x_values = np.arange(len(train_predict) + 2*time_step, len(train_predict) + len(test_predict) + 2*time_step)
-
-#     last_test_data = X_test[-1]
-#     future_predictions = predict_future(model, last_test_data, steps = 12 * projection_period, scaler=scaler)
-    
-#     return data, train_predict, test_predict, train_x_values, test_x_values, future_predictions, time_step
-
 # info_dict
 @lru_cache(maxsize=None)
 def get_제도설계_info(가입대상분류):
@@ -754,6 +496,29 @@ def simul(명부, 기준일, sim_yr, 할인율, bu_i):
     명부 = 명부[명부['사원번호'].isin(result_table['사번'])]
     
     return result_table, 명부, cf_data
+
+# simul()은 난수를 쓰지 않는 결정적 계산이므로 동일 입력(연차·할인율·명부·퇴직자 상태)의
+# 결과를 한 실행 내에서 재사용한다. 전역 부수효과(retired, retired_cumulative)까지 키와
+# 캐시값에 포함해 캐시 미사용 시와 결과가 완전히 동일하다. (스크립트 재실행 시 자동 초기화)
+_simul_cache = {}
+def simul_cached(명부, 기준일, sim_yr, 할인율, bu_i):
+    global retired_cumulative
+    key = (
+        sim_yr, round(float(할인율), 6), bu_i,
+        hashlib.md5(pickle.dumps(명부)).hexdigest(),
+        retired[sim_yr - 1] if sim_yr > 0 else None,
+        retired_cumulative if sim_yr > 0 else 0,
+    )
+    hit = _simul_cache.get(key)
+    if hit is not None:
+        result_table, 명부_out, cf_data, retired_add, retired_cum = hit
+        retired.append(retired_add)
+        retired_cumulative = retired_cum
+        return result_table.copy(), 명부_out.copy(), dict(cf_data)
+    result_table, 명부_out, cf_data = simul(명부, 기준일, sim_yr, 할인율, bu_i)
+    _simul_cache[key] = (result_table.copy(), 명부_out.copy(), dict(cf_data), retired[-1], retired_cumulative)
+    return result_table, 명부_out, cf_data
+
 # ===== 공통 헬퍼 =====
 def asset_config_block(
     title: str,
@@ -870,30 +635,6 @@ def render_and_cache_asset(asset, var, T, macro, simulated_paths, params):
 # -----------------------------
 # 1) 유틸 함수
 # -----------------------------
-def month_offset(base_dt: pd.Timestamp, liab_dt: pd.Timestamp) -> int:
-    return (liab_dt.year - base_dt.year) * 12 + (liab_dt.month - base_dt.month)
-
-def year_end_cols(W: int, o: int) -> np.ndarray:
-    if o > W - 1:
-        raise ValueError(f"offset {o}가 범위를 벗어남(W={W})")
-    K = 1 + (W - 1 - o) // 12
-    return np.array([o + 12*k for k in range(K)], dtype=int)
-
-def build_new_ALM_DB(ALM_DB_sim: dict):
-    s_keys = sorted(ALM_DB_sim.keys())
-    t_keys = sorted(ALM_DB_sim[s_keys[0]].keys())
-    S = len(s_keys); K = len(t_keys)
-    DBO_mat = np.empty((K, S), dtype=float)
-    NC_mat  = np.empty((K, S), dtype=float)
-    EBP_mat = np.empty((K, S), dtype=float)
-    for ti, t in enumerate(t_keys):
-        for si, s in enumerate(s_keys):
-            rec = ALM_DB_sim[s][t]
-            DBO_mat[ti, si] = float(rec['DBO'])
-            NC_mat[ti,  si] = float(rec['NC'])
-            EBP_mat[ti, si] = float(rec['EBP'])
-    return {'DBO': DBO_mat, 'NC': NC_mat, 'EBP': EBP_mat}
-
 def _compute_FR(x, initial_asset_value):
     W = x.reshape(산출년수, A)
     S = A3D.shape[0]
@@ -914,40 +655,6 @@ def _compute_FR(x, initial_asset_value):
 def _compute_FR_trimmed(x, init_val):
     R_port, Asset, FR, Surp = _compute_FR(x, init_val)
     return R_port[:, 1:], Asset[:, 1:], FR[:, 1:], Surp[:, 1:]
-
-def make_ef_for_year(R: np.ndarray,
-                    bounds: list,
-                    n_target: int = 20,
-                    w0: np.ndarray = None):
-    S, A = R.shape
-    mu   = R.mean(axis=0)              # (A,)
-    Sig  = np.cov(R, rowvar=False)     # (A,A)
-    mu_min, mu_max = np.quantile(mu, 0.05), np.quantile(mu, 0.95)
-    if mu_min == mu_max:
-        _mn, _mx = float(mu.min()), float(mu.max())
-        mu_min, mu_max = (_mn, _mx) if _mx > _mn else (_mn, _mn + 0.02)
-    targets = np.linspace(mu_min, mu_max, n_target)
-    if w0 is None:
-        w0 = np.ones(A) / A
-    cons_sum1 = ({'type': 'eq', 'fun': lambda w: float(np.sum(w) - 1.0)},)
-    ws, tg = [], []
-    for tt in targets:
-        obj  = lambda w: float(w @ Sig @ w)
-        cons = cons_sum1 + ({'type': 'eq', 'fun': lambda w, ttar=tt: float(np.dot(w, mu) - ttar)},)
-        res  = minimize(obj, w0, method='SLSQP', bounds=bounds, constraints=cons,
-                        options={"ftol":1e-10,"maxiter":400})
-        if res.success:
-            ws.append(res.x); tg.append(tt)
-    return np.array(ws), np.array(tg), mu, Sig, targets
-
-def liability_year_labels(liab_dt: pd.Timestamp, o_raw: int, col_idx: np.ndarray) -> pd.DatetimeIndex:
-    dates = []
-    for c in col_idx:
-        delta = c - o_raw
-        y = liab_dt.year + (liab_dt.month - 1 + delta) // 12
-        m = (liab_dt.month - 1 + delta) % 12 + 1
-        dates.append(pd.Timestamp(year=y, month=m, day=1) + pd.offsets.MonthEnd(0))
-    return pd.DatetimeIndex(dates)
 
 #--------------------------------------------------------------
 # Streamlit 앱 시작 
@@ -978,9 +685,9 @@ with col4:
 
 liab_dt = pd.Timestamp(기준일)
 dates = pd.date_range(
-    end=liab_dt + pd.offsets.YearEnd(산출년수 - 1),
+    end=liab_dt + pd.offsets.YearEnd(산출년수 - 1, month=liab_dt.month),
     periods=산출년수,
-    freq=f"A-{liab_dt.strftime('%b').upper()}"
+    freq=pd.offsets.YearEnd(month=liab_dt.month)
 )
 date_labels = [d.strftime("%Y-%m") for d in dates]    
 
@@ -990,6 +697,11 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(["�
 
 # 각 탭의 내용 설정
 default_url = "https://raw.githubusercontent.com/bobkim67/K-ALM/main/"
+
+@st.cache_data(ttl=3600, show_spinner="기본 데이터 로딩 중...")
+def load_default_excel(url: str) -> pd.DataFrame:
+    return pd.read_excel(url)
+
 with tab1:
     #명부 업로드
     fl0 = st.file_uploader(":file_folder: 명부 Upload",type=(["csv","xlsx","xls"]))
@@ -999,7 +711,7 @@ with tab1:
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     
     else:
-        명부 = pd.read_excel(urljoin(default_url, quote("명부_v0.xlsx")))
+        명부 = load_default_excel(urljoin(default_url, quote("명부_v0.xlsx")))
         st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`명부_v0.xlsx`)을 자동 불러왔습니다.")
 
     명부['성별'] = 명부['식별번호'].apply(lambda x: 'M' if int(x[7]) % 2 == 1 else 'F')
@@ -1026,7 +738,7 @@ with tab1:
         기초율 = pd.read_excel(fl1)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
-        기초율 = pd.read_excel(urljoin(default_url, quote("기초율_v0.xlsx")))
+        기초율 = load_default_excel(urljoin(default_url, quote("기초율_v0.xlsx")))
         st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`기초율_v0.xlsx`)을 자동 불러왔습니다.")
     st.dataframe(기초율)
 
@@ -1037,7 +749,7 @@ with tab1:
         지급률 = pd.read_excel(fl2)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
-        지급률 = pd.read_excel(urljoin(default_url, quote("지급률_v0.xlsx")))
+        지급률 = load_default_excel(urljoin(default_url, quote("지급률_v0.xlsx")))
         st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`지급률_v0.xlsx`)을 자동 불러왔습니다.")
     st.dataframe(지급률)
 
@@ -1049,7 +761,7 @@ with tab1:
         macro = pd.read_excel(fl3)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
-        macro = pd.read_excel(urljoin(default_url, quote("Data_2025_v3.xlsx")))
+        macro = load_default_excel(urljoin(default_url, quote("Data_2025_v3.xlsx")))
         st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`Data_2025_v3.xlsx`)을 자동 불러왔습니다.")
     st.dataframe(macro)
 
@@ -1061,7 +773,7 @@ with tab1:
         Exp_rt_xl = pd.read_excel(fl4)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
-        Exp_rt_xl = pd.read_excel(urljoin(default_url, quote("기대수익률_v0.xlsx")))
+        Exp_rt_xl = load_default_excel(urljoin(default_url, quote("기대수익률_v0.xlsx")))
         st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`기대수익률_v0.xlsx`)을 자동 불러왔습니다.")    
 
     # ✅ 자산군을 인덱스로
@@ -1211,12 +923,11 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
 
         if st.button(label="저장", key = '제도설정'):
             st.session_state.직급개수 = 직급개수
-            if st.session_state.직급개수 == 1:
-                st.session_state.제도설계 = pd.DataFrame([직원_설계], index = ['직원'])
-                st.write("직원 설정:", st.session_state.제도설계)
-                    
-            elif st.session_state.직급개수 >= 2:
-                st.session_state.제도설계 = pd.concat([pd.DataFrame([직원_설계], index = ['직원']), pd.DataFrame([임원_설계], index = ['임원'])])
+            if 직급개수 >= 1:
+                설계_frames = [pd.DataFrame([직원_설계], index = ['직원'])]
+                if 직급개수 >= 2:
+                    설계_frames.append(pd.DataFrame([임원_설계], index = ['임원']))
+                st.session_state.제도설계 = pd.concat(설계_frames)
                 st.write("직원 설정:", st.session_state.제도설계)
             
     with tab3:
@@ -1335,27 +1046,15 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         
         if st.button(label="저장", key = '제도설정_추가'):
             st.session_state.직급개수2 = 직급개수2
-            if st.session_state.직급개수 == 1:
-                if st.session_state.직급개수2 == 1:
-                    st.session_state.제도설계 = pd.concat([pd.DataFrame([직원_설계], index = ['직원'])\
-                        ,pd.DataFrame([직원1_설계], index = ['직원1'])])
-                    st.write("직원 설정:", st.session_state.제도설계)
-                    
-                elif st.session_state.직급개수2 == 2:
-                    st.session_state.제도설계 = pd.concat([pd.DataFrame([직원_설계], index = ['직원'])\
-                        , pd.DataFrame([직원1_설계], index = ['직원1']), pd.DataFrame([직원2_설계], index = ['직원2'])])
-                    st.write("직원 설정:", st.session_state.제도설계)
-            
-            if st.session_state.직급개수 == 2:
-                if st.session_state.직급개수2 == 1:
-                    st.session_state.제도설계 = pd.concat([pd.DataFrame([직원_설계], index = ['직원']), pd.DataFrame([임원_설계], index = ['임원'])\
-                        ,pd.DataFrame([직원1_설계], index = ['직원1'])])
-                    st.write("직원 설정:", st.session_state.제도설계)
-                    
-                elif 직급개수2 == 2:
-                    st.session_state.제도설계 = pd.concat([pd.DataFrame([직원_설계], index = ['직원']), pd.DataFrame([임원_설계], index = ['임원'])\
-                        , pd.DataFrame([직원1_설계], index = ['직원1']), pd.DataFrame([직원2_설계], index = ['직원2'])])
-                    st.write("직원 설정:", st.session_state.제도설계)                   
+            if st.session_state.직급개수 in (1, 2) and 직급개수2 in (1, 2):
+                설계_frames = [pd.DataFrame([직원_설계], index = ['직원'])]
+                if st.session_state.직급개수 == 2:
+                    설계_frames.append(pd.DataFrame([임원_설계], index = ['임원']))
+                설계_frames.append(pd.DataFrame([직원1_설계], index = ['직원1']))
+                if 직급개수2 == 2:
+                    설계_frames.append(pd.DataFrame([직원2_설계], index = ['직원2']))
+                st.session_state.제도설계 = pd.concat(설계_frames)
+                st.write("직원 설정:", st.session_state.제도설계)
 
     with tab4:
         # 앱의 시작 부분에 세션 상태 초기화
@@ -1587,7 +1286,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
 
                 # 미래 인덱스: 실측 마지막 달 '다음 달'부터 T개월
                 last_hist = hist.index[-1]
-                future_index = pd.date_range(start=last_hist + pd.offsets.MonthEnd(1), periods=T, freq='M')
+                future_index = pd.date_range(start=last_hist + pd.offsets.MonthEnd(1), periods=T, freq='ME')
 
                 # 요약선 계산 (time-axis: axis=0)
                 min_line   = np.min(arr, axis=0)
@@ -1791,6 +1490,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 (rates_filtered.index.month == 월) & (rates_filtered.index.day == 일)
             ]
             strt = rates_db.index.get_loc(기준일_dt) + 1
+            dbo_progress = st.progress(0.0, text="퇴직부채 산출 중...")
 
             for j in range(0, len(rates_round_filtered.columns)):
                 interval = rates_round_filtered.columns[j]
@@ -1802,7 +1502,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                 for sim_yr in range(0, 산출년수): 
                     시산기준일 = date(기준일.year + sim_yr, 기준일.month, 기준일.day)
                     할인율 = rates_round_filtered.iloc[sim_yr, j]
-                    result_table, 명부, cf_data = simul(명부, 기준일, sim_yr, 할인율, 0)
+                    result_table, 명부, cf_data = simul_cached(명부, 기준일, sim_yr, 할인율, 0)
                     명부_dict[sim_yr] = 명부
                     total_emp = len(명부)
                     print(f"시산기준일: {시산기준일}, Discount Rate: {할인율}, interval: {interval}, Year_{sim_yr}: Number of employees: {total_emp}")
@@ -1818,7 +1518,10 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     cf[interval][f"Year_{sim_yr}"] = cf_data
 
                 명부 = 명부_dict[0]
-        
+                dbo_progress.progress((j + 1) / len(rates_round_filtered.columns),
+                                      text=f"퇴직부채 산출 중... ({j + 1}/{len(rates_round_filtered.columns)})")
+
+            dbo_progress.empty()
             st.session_state.ALM_DB = ALM_DB
             st.session_state.ALM_DB_ind = ALM_DB_ind
             st.session_state.명부_dict = 명부_dict
@@ -2581,7 +2284,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         rates = pd.concat([real, rates], axis = 0, ignore_index=True)
         rates = rates.rolling(window=36).mean().dropna()
         rates = round((rates / 0.0025).round().clip(lower=0) * 0.0025, 4)
-        date_range = pd.date_range(start=macro['Date'][0:].values[0], periods=len(macro['G_Bond_10Y']) + projection_period * 12, freq='M').strftime('%Y-%m-%d')
+        date_range = pd.date_range(start=macro['Date'][0:].values[0], periods=len(macro['G_Bond_10Y']) + projection_period * 12, freq='ME').strftime('%Y-%m-%d')
         rates = pd.concat([pd.DataFrame(date_range, columns = ['Date']), pd.DataFrame(rates)], axis=1)    
                 
         st.write("### [자산배분용] 퇴직부채 시뮬레이션 산출")
@@ -2591,6 +2294,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         else:
             if st.button(label="퇴직부채 산출(자산배분용)", key = 'DBO(for ALM)'):           
                 strt = rates[rates['Date']==pd.to_datetime(기준일, format = '%Y-%m-%d').strftime('%Y-%m-%d')].index[0]
+                alm_progress = st.progress(0.0, text="퇴직부채 산출(자산배분용) 중...")
                 for j in range(1, len(rates.columns)):
                     interval = rates.columns[j]
                     ALM_DB[interval] = {}
@@ -2603,7 +2307,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                             
                     for sim_yr in range(0, 산출년수):
                         시산기준일 = pd.to_datetime(date(기준일.year + sim_yr, 기준일.month, 기준일.day), format='%Y-%m-%d')
-                        result_table, 명부, cf_data = simul(명부, 기준일, sim_yr, 할인율[(j - 1) * 산출년수 + sim_yr], 0)
+                        result_table, 명부, cf_data = simul_cached(명부, 기준일, sim_yr, 할인율[(j - 1) * 산출년수 + sim_yr], 0)
                         명부_dict[sim_yr] = 명부
                         total_emp = len(명부)
                         print(f"시산기준일: {시산기준일}, Discount Rate: {할인율[(j - 1) * 산출년수 + sim_yr]}, interval: {interval}, Year_{sim_yr}: Number of employees: {total_emp}")
@@ -2616,8 +2320,11 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                             'EBP' : results_dict[interval][f"Year_{sim_yr}"]['EBP'].sum(),
                         }
                     명부 = 명부_dict[0]
-                
-                pickle.dump(ALM_DB, open('ALM_DB_sim.pkl','wb'))        
+                    alm_progress.progress(j / (len(rates.columns) - 1),
+                                          text=f"퇴직부채 산출(자산배분용) 중... ({j}/{len(rates.columns) - 1})")
+
+                alm_progress.empty()
+                pickle.dump(ALM_DB, open('ALM_DB_sim.pkl','wb'))
                 st.session_state.ALM_DB_sim = ALM_DB
             ALM_DB_sim = st.session_state.ALM_DB_sim
             
@@ -2843,7 +2550,7 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
                     {**{a: "{:.2%}" for a in asset_order},
                     "r_f": "{:.2%}", "Vol": "{:.2%}", "ExpRet": "{:.2%}", "Sharpe_excess": "{:.3f}"}
                 ),
-                use_container_width=True,
+                width='stretch',
                 height=560
             )
 
