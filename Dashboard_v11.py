@@ -1224,6 +1224,9 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
             correlation_df = cor_data[var_dw].corr()
             correlation = correlation_df.values
             L = np.linalg.cholesky(correlation)
+            # 다른 탭(메모)의 엑셀 출력에서 쓰도록 DataFrame 형태로 보관
+            st.session_state.correlation_df = correlation_df
+            st.session_state.cholesky_df = pd.DataFrame(L, index=var_dw, columns=var_dw)
 
             # ▶ epsilon 생성
             all_epsilon = {asset: pd.DataFrame(index=index_rows, columns=columns_ts, dtype=float) for asset in asset_related}
@@ -1961,14 +1964,18 @@ if all([명부 is not None, 기초율 is not None, 지급률 is not None, macro 
         if generate_excel:
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                correlation.to_excel(writer, sheet_name='corr', index=True)
-                L.to_excel(writer, sheet_name='corr(cholesky)', index=True)
+                if 'correlation_df' in st.session_state:
+                    st.session_state.correlation_df.to_excel(writer, sheet_name='corr', index=True)
+                    st.session_state.cholesky_df.to_excel(writer, sheet_name='corr(cholesky)', index=True)
                 명부['성별'].value_counts().reset_index().to_excel(writer, sheet_name='명부(성별)', index=False)
                 명부['임직원구분'].value_counts().reset_index().to_excel(writer, sheet_name='명부(임직원구분)', index=False)
                 명부['근속년수'].value_counts().sort_index().reset_index().to_excel(writer, sheet_name='명부(근속년수)', index=False)
                 명부['연령'].value_counts().sort_index().reset_index().to_excel(writer, sheet_name='명부(연령)', index=False)
                 pd.pivot_table(명부, values='기준급여', index='근속년수', columns='임직원구분', aggfunc='mean').to_excel(writer, sheet_name='명부(기준급여(평균))', index=True)
             excel_data = output.getvalue()
+
+            if 'correlation_df' not in st.session_state:
+                st.info("ℹ️ 상관행렬/촐레스키 시트는 '금리 시나리오' 탭에서 실행을 먼저 눌러야 포함됩니다.")
 
             # 다운로드 버튼 생성
             st.download_button(
