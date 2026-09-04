@@ -680,7 +680,7 @@ st.title(" :bar_chart: 한국투자증권 ALM 시뮬레이터")
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    selected_date = st.date_input("기준일 입력", value = datetime(2025, 12, 31))
+    selected_date = st.date_input("기준일 입력", value = datetime(2026, 12, 31))
     st.write("기준일:", selected_date)
     기준일 = selected_date
 
@@ -724,8 +724,8 @@ with tab1:
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     
     else:
-        명부 = load_default_excel(urljoin(default_url, quote("명부_v0.xlsx")))
-        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`명부_v0.xlsx`)을 자동 불러왔습니다.")
+        명부 = load_default_excel(urljoin(default_url, quote("명부_202608.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`명부_202608.xlsx`)을 자동 불러왔습니다.")
 
     명부['성별'] = 명부['식별번호'].apply(lambda x: 'M' if int(x[7]) % 2 == 1 else 'F')
     명부['dob_yr'] = 명부['식별번호'].apply(lambda x: '19' if int(x[7]) in [1, 2, 5, 6] else '20')
@@ -751,8 +751,8 @@ with tab1:
         기초율 = pd.read_excel(fl1)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
-        기초율 = load_default_excel(urljoin(default_url, quote("기초율_v0.xlsx")))
-        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`기초율_v0.xlsx`)을 자동 불러왔습니다.")
+        기초율 = load_default_excel(urljoin(default_url, quote("기초율_202608.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`기초율_202608.xlsx`)을 자동 불러왔습니다.")
     st.dataframe(기초율)
 
     #지급률 업로드
@@ -762,8 +762,8 @@ with tab1:
         지급률 = pd.read_excel(fl2)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
-        지급률 = load_default_excel(urljoin(default_url, quote("지급률_v0.xlsx")))
-        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`지급률_v0.xlsx`)을 자동 불러왔습니다.")
+        지급률 = load_default_excel(urljoin(default_url, quote("지급률_202608.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`지급률_202608.xlsx`)을 자동 불러왔습니다.")
     st.dataframe(지급률)
 
     #경제지표 업로드
@@ -774,8 +774,8 @@ with tab1:
         macro = pd.read_excel(fl3)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
-        macro = load_default_excel(urljoin(default_url, quote("Data_2025_v3.xlsx")))
-        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`Data_2025_v3.xlsx`)을 자동 불러왔습니다.")
+        macro = load_default_excel(urljoin(default_url, quote("Data_202608.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`Data_202608.xlsx`)을 자동 불러왔습니다.")
     st.dataframe(macro)
 
     #기대수익률 업로드
@@ -786,8 +786,8 @@ with tab1:
         Exp_rt_xl = pd.read_excel(fl4)
         st.info(f"✅ 사용자 업로드 파일 사용: {filename}")
     else:
-        Exp_rt_xl = load_default_excel(urljoin(default_url, quote("기대수익률_v0.xlsx")))
-        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`기대수익률_v0.xlsx`)을 자동 불러왔습니다.")    
+        Exp_rt_xl = load_default_excel(urljoin(default_url, quote("기대수익률_202608.xlsx")))
+        st.info("ℹ️ 업로드된 파일이 없어, GitHub 기본 파일(`기대수익률_202608.xlsx`)을 자동 불러왔습니다.")    
 
     # ✅ 자산군을 인덱스로
     Exp_rt_xl.set_index("자산군", inplace=True)
